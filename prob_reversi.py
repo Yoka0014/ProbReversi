@@ -161,9 +161,9 @@ class Position:
         self.__player, self.__opponent = player, opponent
         self.__side_to_move = side_to_move
 
-    def copy(self, copy_trans_prob=True):
-        pos = Position(self.SIZE, self.TRANS_PROB)
-        self.copy_to(pos, copy_trans_prob)
+    def copy(self):
+        pos = Position(self.SIZE)
+        self.copy_to(pos)
         return pos
     
     def copy_to(self, dest, copy_trans_prob=True):
