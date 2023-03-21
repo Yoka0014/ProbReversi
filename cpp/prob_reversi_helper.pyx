@@ -1,20 +1,24 @@
 """
 prob_reversi_helperのラッパー.
 """
-
 from libcpp cimport bool
 
+
 cdef extern from "prob_reversi_helper.h":
-    cdef bool __set_board_size(int size);
-    cdef unsigned long long __calc_mobility(unsigned long long p, unsigned long long o)
-    cdef unsigned long long __calc_flip_discs(unsigned long long p, unsigned long long o, int coord);
+    cdef cppclass __Helper:
+        __Helper(int)
+        unsigned long long calc_mobility(unsigned long long p, unsigned long long o)
+        unsigned long long calc_flip_discs(unsigned long long p, unsigned long long o, int coord);
 
 
-def set_board_size(size):
-    return __set_board_size(size)
+cdef class Helper:
+    cdef __Helper *__this_ptr
 
-def calc_mobility(p, o):
-    return __calc_mobility(p, o)
+    def __cinit__(self, size):
+        self.__this_ptr = new __Helper(size)
 
-def calc_flip_discs(p, o, coord):
-    return __calc_flip_discs(p, o, coord)
+    def calc_mobility(self, p, o):
+        return self.__this_ptr.calc_mobility(p, o)
+
+    def calc_flip_discs(self, p, o, coord):
+        return self.__this_ptr.calc_flip_discs(p, o, coord)

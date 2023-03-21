@@ -1,6 +1,6 @@
 """
 確率リバーシの盤面関連.
-一部, C++で実装(cppディレクトリ内のprob_reversi_helper.hと__prob_reversi_helper.cppを参照).
+一部, C++で実装(cppディレクトリ内のself.__helper.hと__self.__helper.cppを参照).
 """
 
 from typing import List, Generator, Tuple
@@ -66,7 +66,7 @@ class Position:
     リストなどで実装するよりもデータ量が削減でき, ビット演算を用いれば複数のマス目を同時に処理することもできる.
     """
     def __init__(self, size, trans_prob = None):
-        prob_reversi_helper.set_board_size(size)
+        self.__helper = prob_reversi_helper.Helper(size)
 
         self.SIZE = size
         self.SQUARE_NUM = size * size
@@ -293,7 +293,7 @@ class Position:
         終局しているかどうかを返す.
         """
         p, o = self.__player, self.__opponent
-        return prob_reversi_helper.calc_mobility(p, o).bit_count() == 0 and prob_reversi_helper.calc_mobility(o, p).bit_count() == 0
+        return self.__helper.calc_mobility(p, o).bit_count() == 0 and self.__helper.calc_mobility(o, p).bit_count() == 0
     
     def get_score(self) -> int:
         """
@@ -305,7 +305,7 @@ class Position:
         """
         パスが可能な局面かどうかを返す.
         """
-        return prob_reversi_helper.calc_mobility(self.__player, self.__opponent).bit_count() == 0
+        return self.__helper.calc_mobility(self.__player, self.__opponent).bit_count() == 0
 
     def do_pass(self):
         """
@@ -318,7 +318,7 @@ class Position:
         """
         着手可能な位置を取得する.
         """
-        mobility = prob_reversi_helper.calc_mobility(self.__player, self.__opponent)
+        mobility = self.__helper.calc_mobility(self.__player, self.__opponent)
         while mobility:
             coord = (mobility & -mobility).bit_length() - 1  
             yield coord
@@ -328,7 +328,7 @@ class Position:
         """
         次の着手位置をランダムにサンプリングする.
         """
-        mobility = prob_reversi_helper.calc_mobility(self.__player, self.__opponent)
+        mobility = self.__helper.calc_mobility(self.__player, self.__opponent)
 
         move_num = mobility.bit_count()
         if move_num == 0:
@@ -357,9 +357,9 @@ class Position:
         rand = self.__rand.random()
 
         if rand < prob:  # 手番の石を置ける.
-            return Move(Player.CURRENT, coord, prob_reversi_helper.calc_flip_discs(self.__player, self.__opponent, coord))
+            return Move(Player.CURRENT, coord, self.__helper.calc_flip_discs(self.__player, self.__opponent, coord))
         
-        return Move(Player.OPPONENT, coord, prob_reversi_helper.calc_flip_discs(self.__opponent, self.__player, coord))  # 相手に石を置かれる.
+        return Move(Player.OPPONENT, coord, self.__helper.calc_flip_discs(self.__opponent, self.__player, coord))  # 相手に石を置かれる.
     
     def get_player_move(self, coord: int) -> Move:
         """
@@ -369,7 +369,7 @@ class Position:
         ----
         coord == self.PASS_COORDの場合は未定義. do_pass関数を用いること. 
         """
-        return Move(Player.CURRENT, coord, prob_reversi_helper.calc_flip_discs(self.__player, self.__opponent, coord))
+        return Move(Player.CURRENT, coord, self.__helper.calc_flip_discs(self.__player, self.__opponent, coord))
     
     def get_opponent_move(self, coord: int) -> Move:
         """
@@ -379,7 +379,7 @@ class Position:
         ----
         coord == self.PASS_COORDの場合は未定義. do_pass関数を用いること. 
         """
-        return Move(Player.OPPONENT, coord, prob_reversi_helper.calc_flip_discs(self.__opponent, self.__player, coord))
+        return Move(Player.OPPONENT, coord, self.__helper.calc_flip_discs(self.__opponent, self.__player, coord))
     
     def do_move(self, move: Move):
         """
@@ -415,7 +415,7 @@ class Position:
             if self.can_pass() != 0:    # パスできないのにパスをしようとした.
                 return False
             
-        if not (prob_reversi_helper.calc_mobility(self.__player, self.__opponent) & coord_bit):    # 着手できない場所に着手しようとした.
+        if not (self.__helper.calc_mobility(self.__player, self.__opponent) & coord_bit):    # 着手できない場所に着手しようとした.
             return False
         
         self.do_move(self.get_move(coord))

@@ -4,24 +4,13 @@
 
 using namespace std;
 
-int32_t g_board_size = 4;
-int32_t g_square_num = g_board_size * g_board_size;
-uint64_t g_valid_bits_mask = 0x000000000000ffffULL;
-int32_t g_shift_table[4] = { 1, 4, 5, 3 };
-uint64_t g_masks[4] = { 0b0110011001100110ULL, 0b1111111111111111ULL, 0b0110011001100110ULL, 0b0110011001100110ULL };
-
-bool __set_board_size(int32_t size)
+__Helper::__Helper(int32_t size) : board_size(size), square_num(size * size), shift_table(), masks()
 {
-    if(size < 4 || size > 8)
-        return false;
-
-    g_board_size = size;
-    g_square_num = size * size;
-    g_valid_bits_mask = (g_square_num < 64) ? (1ULL << g_square_num) - 1 : 0xffffffffffffffffULL;
-    g_shift_table[0] = 1;
-    g_shift_table[1] = size;
-    g_shift_table[2] = size + 1;
-    g_shift_table[3] = size - 1;
+    this->valid_bits_mask = (this->square_num < 64) ? (1ULL << this->square_num) - 1 : 0xffffffffffffffffULL;
+    this->shift_table[0] = 1;
+    this->shift_table[1] = size;
+    this->shift_table[2] = size + 1;
+    this->shift_table[3] = size - 1;
 
     auto vm = ~((1ULL << (size - 1)) + 1ULL) & ((1ULL << size) - 1);
     auto v_mask = 0ULL;
@@ -31,17 +20,15 @@ bool __set_board_size(int32_t size)
         vm <<= size;
     }
 
-    g_masks[0] = g_masks[2] = g_masks[3] = v_mask;
-    g_masks[1] = g_valid_bits_mask;
-
-    return true;
+    this->masks[0] = this->masks[2] = this->masks[3] = v_mask;
+    this->masks[1] = this->valid_bits_mask;
 }
 
-uint64_t __calc_mobility(uint64_t p, uint64_t o)
+uint64_t __Helper::calc_mobility(uint64_t p, uint64_t o)
 {
-    int32_t size = g_board_size;
-    int32_t* shift_table = g_shift_table;
-    uint64_t* masks = g_masks;
+    int32_t size = this->board_size;
+    int32_t* shift_table = this->shift_table;
+    uint64_t* masks = this->masks;
 
     uint64_t mobility[4]{}; // ループ前後の依存関係を無くすために, mobilityは方向ごとに配列に格納.
     for (auto dir = 0; dir < 4; dir++)  // 左方向にチェック.
@@ -64,14 +51,14 @@ uint64_t __calc_mobility(uint64_t p, uint64_t o)
         mobility[dir] |= flip >> shift;
     }
 
-    return (mobility[0] | mobility[1] | mobility[2] | mobility[3]) & ~(p | o) & g_valid_bits_mask;
+    return (mobility[0] | mobility[1] | mobility[2] | mobility[3]) & ~(p | o) & this->valid_bits_mask;
 }
 
-uint64_t __calc_flip_discs(uint64_t p, uint64_t o, int32_t coord)
+uint64_t __Helper::calc_flip_discs(uint64_t p, uint64_t o, int32_t coord)
 {
-    int32_t size = g_board_size;
-    int32_t* shift_table = g_shift_table;
-    uint64_t* masks = g_masks;
+    int32_t size = this->board_size;
+    int32_t* shift_table = this->shift_table;
+    uint64_t* masks = this->masks;
     auto x = 1ULL << coord;
 
     uint64_t flip[4]{}; // ループ前後の依存関係を無くすために, flipは方向ごとに配列に格納.

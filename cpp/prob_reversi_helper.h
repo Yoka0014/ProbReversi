@@ -8,13 +8,43 @@
 
 #include <cstdint>
 
-extern std::int32_t g_board_size;    // 盤面のサイズ.
-extern std::int32_t g_square_num;   // マス目の数.
-extern std::uint64_t g_valid_bits_mask;   // 使用するビットだけ1が立っているマスク. 例えば, 4x4盤面であれば, 下位16bitのみ用いるので, 0x000000000000ffffULL となる.
-extern std::int32_t g_shift_table[4];    // 盤面の各方向に対するシフト数.
-extern std::uint64_t g_masks[4];    // 盤面の各方向用のビットマスク. 計算時に盤面の上下左右が繋がることを防ぐ.
+class __Helper
+{
+    public:
+        __Helper(std::int32_t board_size);
 
-bool __set_board_size(std::int32_t size);
-std::uint64_t __calc_mobility(std::uint64_t p, std::uint64_t o);
-std::uint64_t __calc_flip_discs(std::uint64_t p, std::uint64_t o, std::int32_t coord);
- 
+        /**
+         * @fn
+         * @brief 
+         *      着手可能位置を求める.
+         * @param p 
+         *      手番の石の配置.
+         * @param o 
+         *      相手の石の配置.
+         * @return
+         *      着手可能位置が1となっているビットボード.
+         */
+        std::uint64_t calc_mobility(std::uint64_t p, std::uint64_t o);
+
+        /**
+         * @fn
+         * @brief 
+         *      裏返る石を求める.
+         * @param p 
+         *      手番の石の配置.
+         * @param o 
+         *      相手の石の配置.
+         * @param coord
+         *      着手する場所.
+         * @return
+         *      裏返る石の位置が1となっているビットボード.
+         */
+        std::uint64_t calc_flip_discs(std::uint64_t p, std::uint64_t o, std::int32_t coord);
+
+    private:
+        std::int32_t board_size;    // 盤面のサイズ.
+        std::int32_t square_num;   // マス目の数.
+        std::uint64_t valid_bits_mask;   // 使用するビットだけ1が立っているマスク. 例えば, 4x4盤面であれば, 下位16bitのみ用いるので, 0x000000000000ffffULL となる.
+        std::int32_t shift_table[4];    // 盤面の各方向に対するシフト数.
+        std::uint64_t masks[4];    // 盤面の各方向用のビットマスク. 計算時に盤面の上下左右が繋がることを防ぐ.
+};
