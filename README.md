@@ -246,6 +246,23 @@ Position.copyメソッドを用いると、オブジェクトをコピーでき�
 この際、着手成功確率のリスト(Position.TRANS_PROB)をコピーしたくない場合は、copy_trans_probにFalseを指定する。
 
 ```python
+from prob_reversi import Position
+
+pos = Position(6, [0.5 for _ in range(6 * 6)])
+
+pos_1 = pos.copy()
+print(pos == pos_1)  # データが同一なのでTrue.
+print(pos is pos_1)  # 異なるインスタンスなのでFalse.
+
+pos_2 = Position(6)
+pos.copy_to(pos_2)  # pos_2にposの内容をコピー.
+print(pos == pos_2)  # データが同一なのでTrue.
+print(pos is pos_2)  # 異なるインスタンスなのでFalse.
+
+pos_2 = Position(6)
+pos.copy_to(pos_2, copy_trans_prob=False)  # pos_2にposの内容をコピー. ただし, 着手成功確率はコピーしない.
+print(pos == pos_2)  # 着手成功確率が異なるのでFalse.
+print(pos is pos_2)  # 異なるインスタンスなのでFalse.
 
 ```
 
