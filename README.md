@@ -38,7 +38,7 @@ ProbReversiはC++のコードも含まれるため、それらのコンパイル
 python3 setup.py build_ext --inplace     
 ```
 
-C++のコンパイラがインストールされていなかったり、コンパイラへのパスが通っていないと失敗する。環境に合わせて別途インストールする(Windowsならmsvc、Linux/macOSならgcc など)。
+C++のコンパイラがインストールされていなかったり、コンパイラへのパスが通っていなかったりすると失敗する。環境に合わせて別途インストールする(Windowsならmsvc、Linux/macOSならgcc など)。
 
 ## prob_reversi.Positionクラスの使い方
 
@@ -55,6 +55,8 @@ pos = Position(6, [0.5 for _ in range(6 * 6)])
 盤面の座標は以下のように左上から右下にかけて行優先で割り振られている。
 
 ```
+6x6盤面の場合
+
 | 0| 1| 2| 3| 4| 5|
 | 6| 7| 8| 9|10|11|
 |12|13|14|15|16|17|
@@ -74,6 +76,8 @@ PASS_COORD = 36
 パス座標は文字列で表記すると"Pass"となる。
 
 ```
+6x6盤面の場合
+
     A  B  C  D  E  F
 1 | 0| 1| 2| 3| 4| 5|
 2 | 6| 7| 8| 9|10|11|
@@ -232,4 +236,110 @@ Positionオブジェクトは等価演算子で比較可能。手番(side_to_mov
 
 ### 終局判定
 Position.is_gameoverメソッドで終局かどうか判定できる。ただし、探索などで僅かでも速度を求めるなら、このメソッドは使わずに「パスが2回連続発生したら終局」という判定方法の方が高速。
+
+### 石差の取得
+現在の手番側からみた石差を取得したい場合は、Position.get_scoreメソッドを用いる。 例えば、手番の石が33個、相手の石が4個ある場合、 $33 - 4 = 28$ がPosition.get_scoreメソッドの戻り値となる。
+
+### パスが可能な局面かどうか判定する
+リバーシでは、手番のプレイヤーが置ける場所がない場合、パスをして相手に手番を譲る。パスが可能かどうかの判定はPosition.can_passメソッドで行う。Position.can_passメソッドは、パスが可能ならTrue、そうでなければFalseを返す。　　
+後述のPosition.get_next_movesメソッドと併用する場合は、わざわざPosition.can_passメソッドでパスが可能か判定するよりも、Position.get_next_movesメソッドが1つも着手可能位置を返してこなかったらパスが可能であると判定したほうが速い。
+
+### パスをする
+Position.do_passメソッドを用いれば、着手を行わずに相手に手番を譲ることができる。このメソッドはPosition.can_passメソッドの戻り値の真偽に関わらず利用できる。つまり、ルール上パスできない局面もパスできる。
+
+### 着手可能位置を取得する
+Position.get_next_movesメソッドを用いると、現在の手番のプレイヤーが着手可能な場所の座標を取得できる。Position.get_next_movesメソッドはint型のGeneratorを返すので、着手を全て保持したい場合は、リストなどに格納する必要がある。
+
+```python
+from prob_reversi import DiscColor, Position
+
+pos = Position(6, [0.5 for _ in range(6 * 6)])
+
+for coord in pos.get_next_moves():  # pos.get_next_movesはGeneratorを返すので, forで列挙すればリストなどに格納するより高速.
+    print(pos.convert_coord_to_str(coord))
+
+move_list = list(pos.get_next_moves())  # 着手可能位置を全て保持したいのであれば, Generatorからリストを作ればよい.  
+print(move_list)    
+
+"""
+出力結果
+
+C2
+B3
+E4
+D5
+[8, 13, 22, 27]
+"""
+```
+
+### 着手可能位置を1つだけサンプリングする
+Position.sample_next_moveメソッドを用いれば、疑似乱数を用いて着手可能位置から1つだけランダムに取得できる。
+
+### 着手位置から実際の着手を生成する
+Position.get_moveメソッドに着手する座標を与えれば、着手を表現するMoveオブジェクトを取得できる。Moveクラスは以下のように定義されている。
+
+```Python
+class Move:
+    """
+    着手を表現するクラス.
+
+    Attributes
+    ----------
+    player: Player
+        どちらのプレイヤーの石が着手されるか.
+    coord: int
+        着手位置の座標.
+    flip: int
+        裏返る石の配置.
+    """
+    def __init__(self, player=Player.NULL, coord=0, flip=0):
+        self.player = player
+        self.coord = coord   
+        self.flip = flip
+```
+
+Position.get_moveメソッドから取得できるMoveオブジェクトは、着手するマスの着手成功確率によって変化する。つまり、同じ状態のPositionオブジェクトであっても、呼び出すたびにPosition.get_moveメソッドの戻り値は異なることがある。　　
+もし、着手成功確率に関わらず、着手に成功した場合のMoveオブジェクトと着手に失敗した場合のMoveオブジェクトが欲しい場合は、Position.get_player_moveメソッドとPosition.get_opponent_moveメソッドを用いればよい。
+
+```python
+from prob_reversi import DiscColor, Position
+
+pos = Position(6, [0.5 for _ in range(6 * 6)])
+
+coord = 8   # 座標8に着手したい.
+prob_move = pos.get_move(8)     # posの各マス目の着手成功確率は全て0.5に設定しているので, prob_moveは0.5の確率で着手に成功した場合のMoveオブジェクトになる.
+success_move = pos.get_player_move(8)   # 確実に着手に成功した場合のMoveオブジェクトを取得する.
+failure_move = pos.get_opponent_move(8) # 確実に着手に失敗した場合のMoveオブジェクトを取得する.
+```
+
+### Moveオブジェクトを用いて着手する
+Position.do_moveメソッドにMoveオブジェクトを渡せば、着手が完了し、手番が入れ替わる。ただし、Position.do_moveメソッドは合法手判定を一切行わないため、不正なMoveオブジェクトを渡すと、盤面情報が壊れることに注意。もし、合法手判定を行ったうえで着手をする場合は、後述のPosition.do_move_atメソッド用いること。
+
+
+```python
+from prob_reversi import DiscColor, Position
+
+pos = Position(6, [0.5 for _ in range(6 * 6)])
+
+coord = 8   # 座標8に着手したい.
+prob_move = pos.get_move(8)     # posの各マス目の着手成功確率は全て0.5に設定しているので, prob_moveは0.5の確率で着手に成功した場合のMoveオブジェクトになる.
+success_move = pos.get_player_move(8)   # 確実に着手に成功した場合のMoveオブジェクトを取得する.
+failure_move = pos.get_opponent_move(8) # 確実に着手に失敗した場合のMoveオブジェクトを取得する.
+
+p = pos.copy()
+p.do_move(prob_move)
+print(p)    # どんな盤面が出力されるかは, prob_moveの中身次第.
+
+print()
+
+pos.copy_to(p, copy_trans_prob=False)
+p.do_move(success_move)
+print(p)    # 着手に成功した場合の盤面が出力される.
+
+print()
+
+pos.copy_to(p, copy_trans_prob=False)
+p.do_move(failure_move)
+print(p)    # 着手に失敗した場合の盤面が出力される.
+```
 
