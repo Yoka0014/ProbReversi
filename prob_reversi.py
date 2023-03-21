@@ -6,6 +6,7 @@
 from typing import List, Generator, Tuple
 from enum import IntEnum
 import random
+import copy
 
 import prob_reversi_helper  # C++で書いた着手可能位置計算と裏返る石を求める計算を行うヘルパー関数を使用するためのモジュール.
 
@@ -160,10 +161,16 @@ class Position:
         self.__player, self.__opponent = player, opponent
         self.__side_to_move = side_to_move
 
-    def copy(self):
+    def copy(self, copy_trans_prob=True):
         pos = Position(self.SIZE, self.TRANS_PROB)
-        pos.set_state(self.__player, self.__opponent, self.__side_to_move)
+        self.copy_to(pos, copy_trans_prob)
         return pos
+    
+    def copy_to(self, dest, copy_trans_prob=True):
+        dest.__player, dest.__opponent = self.__player, self.__opponent
+        dest.__side_to_move, dest.__opponent_color = self.__side_to_move, self.__opponent_color
+        if copy_trans_prob:
+            dest.TRANS_PROB = copy.copy(self.TRANS_PROB)
 
     def get_disc_count_of(self, color: DiscColor) -> int:
         """
