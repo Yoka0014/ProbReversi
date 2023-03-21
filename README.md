@@ -205,3 +205,23 @@ print(pos.empty_square_count)
 ```
 
 ### 特定のマス目にある石を取得する
+特定のマス目にある石が手番の石なのか相手の石なのかを取得する場合は、Position.get_square_owner_atメソッドを、特定のマス目にある石の色を取得したい場合は、Position.get_square_color_atメソッド用いる。  
+速度の面では、Position.get_square_owner_atメソッドのほうが条件分岐無しでビット演算のみで完結するので高速。
+
+```python
+from prob_reversi import DiscColor, Player, Position
+
+pos = Position(6, [0.5 for _ in range(6 * 6)])
+
+print(pos.get_square_owner_at(15) == Player.CURRENT)    # 座標15には黒石があり、黒は現在の手番なのでTrue.
+print(pos.get_square_owner_at(14) == Player.OPPONENT)    # 座標14には白石があり、白は相手なのでTrue.
+print(pos.get_square_owner_at(14) == Player.CURRENT)    # 座標14には白石があるが、白は現在の手番ではないのでFalse.
+print(pos.get_square_owner_at(0) == Player.NULL)    # 座標0には石がないのでTrue.
+
+print(pos.get_square_color_at(15) == DiscColor.BLACK)    # 座標15には黒石があるので、True.
+print(pos.get_square_color_at(14) == DiscColor.WHITE)    # 座標15には白石があるので、True.
+print(pos.get_square_color_at(0) == DiscColor.NULL)    # 座標0には石がないのでTrue.
+```
+
+### 等価演算子による盤面の比較
+Positionオブジェクトは等価演算子で比較可能。手番(side_to_move)が同じ色で、かつ、盤上の石の配置が等しく、かつ、各マス着手成功確率が等しければ、同じオブジェクトと判定される。
