@@ -71,6 +71,7 @@ class Position:
         self.SIZE = size
         self.SQUARE_NUM = size * size
         self.PASS_COORD = self.SQUARE_NUM
+        self.__VALID_BITS_MASK = (1 << self.SQUARE_NUM) - 1
         self.__side_to_move = DiscColor.BLACK
         self.__opponent_color = DiscColor.WHITE
         self.__player = 0   # 現在の手番の石の配置.
@@ -129,7 +130,7 @@ class Position:
     
     @property
     def empty_square_count(self) -> int:
-        return (~((self.__player | self.__opponent) & 0xffff)).bit_count()
+        return (~(self.__player | self.__opponent) & self.__VALID_BITS_MASK).bit_count()
     
     @property
     def player_disc_count(self) -> int:
