@@ -227,8 +227,27 @@ print(pos.get_square_color_at(14) == DiscColor.WHITE)    # 座標15には白石�
 print(pos.get_square_color_at(0) == DiscColor.NULL)    # 座標0には石がないのでTrue.
 ```
 
+### 特定のマス目の着手成功確率を取得する
+特定のマス目の着手成功確率はPosition.TRANS_PROBフィールドから取得できる。例えば、座標0の着手成功確率が欲しい場合は、以下のように記述する。
+
+```python
+from prob_reversi import DiscColor, Position
+
+pos = Position(6, [0.5 for _ in range(6 * 6)])
+
+print(pos.TRANS_PROB[0])
+```
+
 ### 等価演算子による盤面の比較
 Positionオブジェクトは等価演算子で比較可能。手番(side_to_move)が同じ色で、かつ、盤上の石の配置が等しく、かつ、各マス着手成功確率が等しければ、同じオブジェクトと判定される。
+
+### Positionオブジェクトのコピー
+Position.copyメソッドを用いると、オブジェクトをコピーできる。 既存のPositionオブジェクトに別のPositionオブジェクトの内容をコピーしたい場合は、Position.copy_toメソッドを用いる。  
+この際、着手成功確率のリスト(Position.TRANS_PROB)をコピーしたくない場合は、copy_trans_probにFalseを指定する。
+
+```python
+
+```
 
 ### 盤面の編集
 盤面の初期化など、他の石を裏返さずに石を配置したい場合は、Position.put_player_disc_at、Position.put_opponent_disc_atメソッドを用いる。前者は現在の手番の石を、後者は相手の石を配置する。  
@@ -343,3 +362,21 @@ p.do_move(failure_move)
 print(p)    # 着手に失敗した場合の盤面が出力される.
 ```
 
+### 座標情報のみで着手する
+Position.get_moveメソッドで着手を取得せずに、座標情報のみで着手を行いたい場合は、Position.do_move_atメソッドを用いる。Position.do_move_atメソッドは、着手成功確率に従って確率的に着手をする。また、このメソッドは合法手判定を行うため、非合法手が渡された場合は、盤面を更新せずにFalseを返す。
+
+```python
+from prob_reversi import DiscColor, Position
+
+pos = Position(6, [0.5 for _ in range(6 * 6)])
+
+coord = 8   # 座標8に着手したい.
+print(pos.do_move_at(coord))    # 合法手なのでTrueを出力.
+print(pos)  # どんな盤面が出力されるかは, pos.do_move_atの成否次第.
+
+print(pos.do_move_at(0))    # この時点で座標0に石は置けないのでFalse
+```
+
+### Position.do_moveメソッドとPosition.do_move_atメソッドの使い分け
+Position.do_move_atメソッドは合法手判定を行う分、速度が遅いので、探索などで用いる場合は、Position.do_moveを用いるべき。なぜなら、探索プログラムが正しく実装されていれば、Position.do_moveに非合法手が渡されるはずがないから(もちろんデバッグ時は合法手判定を挟んだほうがよいかもしれない)。  
+UIからユーザーの着手を受け付ける場合は、Position.do_move_atメソッド用いるほうが適切。ユーザーは誤って非合法手を入力してしまう場合があるので。
