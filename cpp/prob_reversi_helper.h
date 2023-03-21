@@ -45,5 +45,5 @@ class __Helper
         std::int32_t square_num;   // マス目の数.
         std::uint64_t valid_bits_mask;   // 使用するビットだけ1が立っているマスク. 例えば, 4x4盤面であれば, 下位16bitのみ用いるので, 0x000000000000ffffULL となる.
         std::int32_t shift_table[4];    // 盤面の各方向に対するシフト数.
-        std::uint64_t masks[4];    // 盤面の各方向用のビットマスク. 計算時に盤面の上下左右が繋がることを防ぐ.
+        std::uint64_t masks[4];    // 盤面の各方向用のビットマスク. 計算時に盤面の左右が繋がることを防ぐ.
 };
