@@ -227,7 +227,7 @@ class Position:
     def __eq__(self, right: object) -> bool:
         if type(right) is not type(self):
             return False
-        return self.__side_to_move == right.__side_to_move and self.__player == right.__player and self.__opponent == right.__opponent
+        return self.__side_to_move == right.__side_to_move and self.__player == right.__player and self.__opponent == right.__opponent and self.TRANS_PROB == right.TRANS_PROB
     
     def __str__(self) -> str:
         s = "  "
