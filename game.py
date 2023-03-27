@@ -4,9 +4,11 @@
 from abc import ABCMeta, abstractproperty, abstractmethod  # 抽象クラスを定義するために必要.
 from dataclasses import dataclass
 import random
+from functools import partial
+from typing import Callable
 
 from prob_reversi import DiscColor, Player, Move, Position
-
+from gui import GameGUI
 
 class IPlayer(metaclass=ABCMeta):
     """
@@ -110,97 +112,128 @@ class PlayerData:
     player: IPlayer
 
 
-def start(player_0: IPlayer, player_1: IPlayer, board_size=4, move_prob: list[float] = None, game_num=1, swap_player_for_each_game=True):
-    """
-    対局を開始する.
+class Game:
+    def __init__(self, player_0: IPlayer, player_1: IPlayer, board_size=4, trans_prob: list[float] = None):
+        """
+        Gameオブジェクトを生成する.
 
-    Parameters
-    ----------
-    player_0: IPlayer
-        1番目のプレイヤー(1回戦黒番).
-    player_1: IPlayer
-        2番目のプレイヤー(2回戦白番).
-    board_size: int
-        盤面のサイズ. 4以上8以下.
-    move_prob: list[float]
-        各マス目の着手成功確率. Noneの場合は乱数で初期化.
-    game_num: int
-        対局数.
-    swap_player_for_each_game: bool
-        1局ごとに先手後手を入れ替えるか.
-    """
-    if move_prob is None:
-        move_prob = [random.random() for _ in range(board_size ** 2)]
-    elif len(move_prob) != board_size ** 2:
-        raise ValueError("Invalid length of move_prob.")
+        Parameters
+        ----------
+        player_0: IPlayer
+            1番目のプレイヤー(1回戦黒番).
+        player_1: IPlayer
+            2番目のプレイヤー(1回戦白番).
+        board_size: int
+            盤面のサイズ. 4以上8以下.
+        trans_prob: list[float]
+            各マス目の着手成功確率. Noneの場合は乱数で初期化.
+        """
+        self.__players = [PlayerData(PlayerStats(), player_0), PlayerData(PlayerStats(), player_1)]
+        
+        if trans_prob is None:
+            trans_prob = [random.random() for _ in range(board_size ** 2)]
 
-    players = (PlayerData(player=player_0, stats=PlayerStats()), PlayerData(player=player_1, stats=PlayerStats()))
-    black_player, white_player = players
+        self.__pos = Position(board_size, trans_prob)
+        self.__last_move: Move = None
 
-    for game_id in range(game_num):
-        print(f"game {game_id + 1}:")
+        self.__show_pos: Callable[[Position], None]
 
-        __play_one_game(Position(board_size, move_prob), black_player, white_player)
+    def get_pos(self) -> Position:
+        return self.__pos.copy()
 
-        if swap_player_for_each_game:
-            black_player, white_player = white_player, black_player
+    def start(self, game_num=1, swap_player_for_each_game=True, use_gui=True, gui_size=512):
+        """
+        対局を開始する.
 
-        for i, player in enumerate(players):
-            stats = player.stats
-            w, d, l, wr = stats.total_win_count, stats.total_draw_count, stats.total_loss_count, stats.total_win_rate
-            print(f"{player.player.name}({i}): win-draw-loss (win_rate) = {w}-{d}-{l} ({wr * 100.0}%)")
-        print()
-
-def __play_one_game(pos: Position, black_player: PlayerData, white_player: PlayerData):
-    player, opponent = black_player.player, white_player.player
-    player.set_position(pos.copy())
-    opponent.set_position(pos.copy())
-
-    last_move = None
-    succeeded_last_move = True
-    while not pos.is_gameover():
-        print(pos)
-        if last_move is not None:
-            s = "Success" if succeeded_last_move else "Failure"
-            print(f"last_move = {pos.convert_coord_to_str(last_move)}({s})")
-        print(f"player = {player.name}({pos.side_to_move.name})\n")
-
-        if pos.can_pass():
-            pos.do_pass()
-            player.do_pass()
-            opponent.do_pass()
-            last_move = pos.PASS_COORD
-            succeeded_last_move = True
+        Parameters
+        ----------
+        game_num: int
+            対局数.
+        swap_player_for_each_game: bool
+            1局ごとに先手後手を入れ替えるか.
+        use_gui: bool
+            GUIで盤面を表示するか.
+        gui_size: int
+            GUIのクライアント領域のサイズ.
+        """
+        if use_gui:
+            worker = partial(self.__start, game_num=game_num, swap_player_for_each_game=swap_player_for_each_game)
+            gui = GameGUI(worker, gui_size)
+            self.__show_pos = lambda pos: gui.set_position(pos)
+            gui.start()
         else:
-            move_coord = player.gen_move()
-            if not (move_coord in pos.get_next_moves()):
-                print(f"Error: Player played invalid move at {pos.convert_coord_to_str(move_coord)}.")
-                print("Suspend current game.")
-                return
+            self.__show_pos = lambda pos: print(f"{pos}\n")
+            self.__start(game_num, swap_player_for_each_game)
 
-            move = pos.get_move(move_coord)
-            pos.do_move(move)
-            last_move = move.coord
-            succeeded_last_move = (move.player == Player.CURRENT)
+    def __start(self, game_num, swap_player_for_each_game):
+        black_player, white_player = self.__players
 
-            player.do_move(move)
-            opponent.do_move(move)
+        for game_id in range(game_num):
+            print(f"game {game_id + 1}:")
+            print(f"{black_player.player.name} v.s. {white_player.player.name}")
 
-        player, opponent = opponent, player
+            self.__play_one_game(black_player, white_player)
 
-    print("gameover")
-    print(f"{pos}\n")
+            if swap_player_for_each_game:
+                black_player, white_player = white_player, black_player
 
-    if pos.side_to_move != DiscColor.BLACK:
-        pos.do_pass()
+            for i, player in enumerate(self.__players):
+                stats = player.stats
+                w, d, l, wr = stats.total_win_count, stats.total_draw_count, stats.total_loss_count, stats.total_win_rate
+                print(f"{player.player.name}({i}): win-draw-loss (win_rate) = {w}-{d}-{l} ({wr * 100.0}%)")
+            print()
 
-    score = pos.get_score()
-    if score == 0:
-        black_player.stats.draw_count[DiscColor.BLACK] += 1
-        white_player.stats.draw_count[DiscColor.WHITE] += 1
-    elif score > 0:
-        black_player.stats.win_count[DiscColor.BLACK] += 1
-        white_player.stats.loss_count[DiscColor.WHITE] += 1
-    else:
-        black_player.stats.loss_count[DiscColor.BLACK] += 1
-        white_player.stats.win_count[DiscColor.WHITE] += 1
+    def __play_one_game(self, black_player: PlayerData, white_player: PlayerData):
+
+        player, opponent = black_player.player, white_player.player
+
+        pos = self.__pos
+        pos.clear()
+
+        player.set_position(pos.copy())
+        opponent.set_position(pos.copy())
+
+        while not pos.is_gameover():
+            self.__show_pos(pos)
+            if self.__last_move is not None:
+                s = "Success" if self.__last_move.player == Player.CURRENT else "Failure"
+                print(f"last_move = {pos.convert_coord_to_str(self.__last_move.coord)}({s})")
+            print(f"player = {player.name}({pos.side_to_move.name})\n")
+
+            if pos.can_pass():
+                pos.do_pass()
+                player.do_pass()
+                opponent.do_pass()
+                self.__last_move = Move(Player.CURRENT, pos.PASS_COORD)
+            else:
+                move_coord = player.gen_move()
+                if not (move_coord in pos.get_next_moves()):
+                    print(f"Error: Player played invalid move at {pos.convert_coord_to_str(move_coord)}.")
+                    print("Suspend current game.")
+                    return
+
+                move = pos.get_move(move_coord)
+                pos.do_move(move)
+                self.__last_move = move
+
+                player.do_move(move)
+                opponent.do_move(move)
+
+            player, opponent = opponent, player
+
+        print("gameover")
+        self.__show_pos(pos)
+
+        if pos.side_to_move != DiscColor.BLACK:
+            pos.do_pass()
+
+        score = pos.get_score()
+        if score == 0:
+            black_player.stats.draw_count[DiscColor.BLACK] += 1
+            white_player.stats.draw_count[DiscColor.WHITE] += 1
+        elif score > 0:
+            black_player.stats.win_count[DiscColor.BLACK] += 1
+            white_player.stats.loss_count[DiscColor.WHITE] += 1
+        else:
+            black_player.stats.loss_count[DiscColor.BLACK] += 1
+            white_player.stats.win_count[DiscColor.WHITE] += 1

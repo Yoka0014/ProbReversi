@@ -44,6 +44,9 @@ class Move:
         self.coord = coord   
         self.flip = flip
 
+    def copy(self):
+        return Move(self.player, self.coord, self.flip)
+
 
 class Position:
     """
@@ -182,7 +185,7 @@ class Position:
         """
         指定された座標のマス目に何色の石が配置されているか取得する.
         """
-        owner = self.get_square_owner_at(self, coord)
+        owner = self.get_square_owner_at(coord)
         if owner == Player.NULL:
             return DiscColor.NULL
         return self.__side_to_move if owner == Player.CURRENT else self.__opponent_color
@@ -230,6 +233,12 @@ class Position:
         
         x, y = coord % self.SIZE, coord // self.SIZE
         return f"{chr(ord('A') + x)}{y + 1}"
+    
+    def convert_coord2D_to_coord1D(self, x: int, y: int) -> int:
+        return x + y * self.SIZE
+    
+    def convert_coord1D_to_coord2D(self, coord: int) -> tuple[int, int]:
+        return (coord % self.SIZE, coord // self.SIZE)
     
     def __eq__(self, right: object) -> bool:
         if type(right) is not type(self):
