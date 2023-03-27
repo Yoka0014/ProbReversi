@@ -13,7 +13,7 @@ ProbReversiでは、確率リバーシの盤面(prob_reversi.Position)とプレ�
 以下、Python3.10のインストールは既に完了しているものとする。
 
 ### Cythonのインストール
-ProbReversiでは、一部Cythonのコードが含まれるため、インストールが必要。　　
+ProbReversiでは、一部Cythonのコードが含まれるため、インストールが必要。  
 pipを用いて以下のコマンドでインストールする。
 
 ```
@@ -136,7 +136,7 @@ opponent = pos.opponent_color # opponent == DiscColor.WHITE
 pos.do_move_at(8) # 1手進めると, pos.side_to_move　と pos.opponent_color の値が入れ替わる.
 
 print(player == DiscColor.WHITE)  # Trueが出力される.
-print(opponent == DiscColor.BLACK) # Falseが出力される.
+print(opponent == DiscColor.BLACK) # Trueが出力される.
 ```
 
 ### 石数を取得する
@@ -277,7 +277,7 @@ Position.is_gameoverメソッドで終局かどうか判定できる。ただし
 現在の手番側からみた石差を取得したい場合は、Position.get_scoreメソッドを用いる。 例えば、手番の石が33個、相手の石が4個ある場合、 $33 - 4 = 28$ がPosition.get_scoreメソッドの戻り値となる。
 
 ### パスが可能な局面かどうか判定する
-リバーシでは、手番のプレイヤーが置ける場所がない場合、パスをして相手に手番を譲る。パスが可能かどうかの判定はPosition.can_passメソッドで行う。Position.can_passメソッドは、パスが可能ならTrue、そうでなければFalseを返す。　　
+リバーシでは、手番のプレイヤーが置ける場所がない場合、パスをして相手に手番を譲る。パスが可能かどうかの判定はPosition.can_passメソッドで行う。Position.can_passメソッドは、パスが可能ならTrue、そうでなければFalseを返す。  
 後述のPosition.get_next_movesメソッドと併用する場合は、わざわざPosition.can_passメソッドでパスが可能か判定するよりも、Position.get_next_movesメソッドが1つも着手可能位置を返してこなかったらパスが可能であると判定したほうが速い。
 
 ### パスをする
@@ -334,7 +334,7 @@ class Move:
         self.flip = flip
 ```
 
-Position.get_moveメソッドから取得できるMoveオブジェクトは、着手するマスの着手成功確率によって変化する。つまり、同じ状態のPositionオブジェクトであっても、呼び出すたびにPosition.get_moveメソッドの戻り値は異なることがある。　　
+Position.get_moveメソッドから取得できるMoveオブジェクトは、着手するマスの着手成功確率によって変化する。つまり、同じ状態のPositionオブジェクトであっても、呼び出すたびにPosition.get_moveメソッドの戻り値は異なることがある。  
 もし、着手成功確率に関わらず、着手に成功した場合のMoveオブジェクトと着手に失敗した場合のMoveオブジェクトが欲しい場合は、Position.get_player_moveメソッドとPosition.get_opponent_moveメソッドを用いればよい。
 
 ```python
@@ -343,9 +343,9 @@ from prob_reversi import DiscColor, Position
 pos = Position(6, [0.5 for _ in range(6 * 6)])
 
 coord = 8   # 座標8に着手したい.
-prob_move = pos.get_move(8)     # posの各マス目の着手成功確率は全て0.5に設定しているので, prob_moveは0.5の確率で着手に成功した場合のMoveオブジェクトになる.
-success_move = pos.get_player_move(8)   # 確実に着手に成功した場合のMoveオブジェクトを取得する.
-failure_move = pos.get_opponent_move(8) # 確実に着手に失敗した場合のMoveオブジェクトを取得する.
+prob_move = pos.get_move(coord)     # posの各マス目の着手成功確率は全て0.5に設定しているので, prob_moveは0.5の確率で着手に成功した場合のMoveオブジェクトになる.
+success_move = pos.get_player_move(coord)   # 確実に着手に成功した場合のMoveオブジェクトを取得する.
+failure_move = pos.get_opponent_move(coord) # 確実に着手に失敗した場合のMoveオブジェクトを取得する.
 ```
 
 ### Moveオブジェクトを用いて着手する
@@ -358,9 +358,9 @@ from prob_reversi import DiscColor, Position
 pos = Position(6, [0.5 for _ in range(6 * 6)])
 
 coord = 8   # 座標8に着手したい.
-prob_move = pos.get_move(8)     # posの各マス目の着手成功確率は全て0.5に設定しているので, prob_moveは0.5の確率で着手に成功した場合のMoveオブジェクトになる.
-success_move = pos.get_player_move(8)   # 確実に着手に成功した場合のMoveオブジェクトを取得する.
-failure_move = pos.get_opponent_move(8) # 確実に着手に失敗した場合のMoveオブジェクトを取得する.
+prob_move = pos.get_move(coord)     # posの各マス目の着手成功確率は全て0.5に設定しているので, prob_moveは0.5の確率で着手に成功した場合のMoveオブジェクトになる.
+success_move = pos.get_player_move(coord)   # 確実に着手に成功した場合のMoveオブジェクトを取得する.
+failure_move = pos.get_opponent_move(coord) # 確実に着手に失敗した場合のMoveオブジェクトを取得する.
 
 p = pos.copy()
 p.do_move(prob_move)
