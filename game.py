@@ -3,12 +3,15 @@
 """
 from abc import ABCMeta, abstractproperty, abstractmethod  # 抽象クラスを定義するために必要.
 from dataclasses import dataclass
-import random
 from functools import partial
 from typing import Callable
+import os
+import random
+import time
 
 from prob_reversi import DiscColor, Player, Move, Position
 from gui import GameGUI
+
 
 class IPlayer(metaclass=ABCMeta):
     """
@@ -48,6 +51,36 @@ class IPlayer(metaclass=ABCMeta):
         パスをする.
         """
         pass
+
+
+class HumanPlayer(IPlayer):
+    def __init__(self):
+        self.__pos = Position(4)
+        self.human_input: int = None
+
+    @property
+    def name(self):
+        return "Human"
+
+    def set_position(self, pos: Position):
+        self.__pos = pos
+
+    def gen_move(self) -> int:
+        if self.__pos.can_pass():
+            return self.__pos.PASS_COORD
+
+        while self.human_input is None or not self.__pos.is_leagal(self.human_input):
+            time.sleep(0)   # ビジー状態にならないようにsleepを挟む.
+
+        ret = self.human_input
+        self.human_input = None
+        return ret
+
+    def do_move(self, move: Move):
+        self.__pos.do_move(move)
+
+    def do_pass(self):
+        self.__pos.do_pass()
 
 
 class PlayerStats:
@@ -129,7 +162,7 @@ class Game:
             各マス目の着手成功確率. Noneの場合は乱数で初期化.
         """
         self.__players = [PlayerData(PlayerStats(), player_0), PlayerData(PlayerStats(), player_1)]
-        
+
         if trans_prob is None:
             trans_prob = [random.random() for _ in range(board_size ** 2)]
 
@@ -137,6 +170,8 @@ class Game:
         self.__last_move: Move = None
 
         self.__show_pos: Callable[[Position], None]
+
+        self.__gui: GameGUI = None
 
     def get_pos(self) -> Position:
         return self.__pos.copy()
@@ -156,12 +191,18 @@ class Game:
         gui_size: int
             GUIのクライアント領域のサイズ.
         """
+        if any(isinstance(p.player, HumanPlayer) for p in self.__players):
+            use_gui = True
+
         if use_gui:
             worker = partial(self.__start, game_num=game_num, swap_player_for_each_game=swap_player_for_each_game)
-            gui = GameGUI(worker, gui_size)
-            self.__show_pos = lambda pos: gui.set_position(pos)
-            gui.start()
+            self.__gui = GameGUI(worker, gui_size)
+            self.__show_pos = lambda pos: self.__gui.set_position(pos)
+            self.__gui.window_closed = lambda: os._exit(0)  # ToDo: 対局中にウインドウを閉じられると, 対局スレッドだけが生き続けるので, 
+                                                            # os._exitで強制終了させている. あまり良いやり方ではないので要修正.
+            self.__gui.start()
         else:
+            self.__gui = None
             self.__show_pos = lambda pos: print(f"{pos}\n")
             self.__start(game_num, swap_player_for_each_game)
 
@@ -206,7 +247,18 @@ class Game:
                 opponent.do_pass()
                 self.__last_move = Move(Player.CURRENT, pos.PASS_COORD)
             else:
+                if self.__gui is not None:
+                    if isinstance(player, HumanPlayer):
+                        player.__class__ = HumanPlayer
+
+                        def f(c):
+                            player.human_input = c
+                        self.__gui.board_clicked = f
+
                 move_coord = player.gen_move()
+                if self.__gui is not None and isinstance(player, HumanPlayer):
+                    self.__gui.board_clicked = lambda: None
+
                 if not (move_coord in pos.get_next_moves()):
                     print(f"Error: Player played invalid move at {pos.convert_coord_to_str(move_coord)}.")
                     print("Suspend current game.")
