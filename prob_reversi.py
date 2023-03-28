@@ -322,6 +322,13 @@ class Position:
         パスが可能な局面かどうかを返す.
         """
         return self.__helper.calc_mobility(self.__player, self.__opponent).bit_count() == 0
+    
+    def is_leagal(self, coord: int) -> bool:
+        """
+        指定された座標への着手が合法かどうかを返す.
+        """
+        mobility = self.__helper.calc_mobility(self.__player, self.__opponent)
+        return bool(mobility & (1 << coord))
 
     def do_pass(self):
         """
