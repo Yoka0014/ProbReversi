@@ -280,6 +280,18 @@ Position.is_gameoverメソッドで終局かどうか判定できる。ただし
 リバーシでは、手番のプレイヤーが置ける場所がない場合、パスをして相手に手番を譲る。パスが可能かどうかの判定はPosition.can_passメソッドで行う。Position.can_passメソッドは、パスが可能ならTrue、そうでなければFalseを返す。  
 後述のPosition.get_next_movesメソッドと併用する場合は、わざわざPosition.can_passメソッドでパスが可能か判定するよりも、Position.get_next_movesメソッドが1つも着手可能位置を返してこなかったらパスが可能であると判定したほうが速い。
 
+### 合法手かどうか確認する
+Position.is_legalメソッドに着手位置の座標を渡すことで、その位置がルール上着手可能な場所かどうか確認できる。
+
+```python
+from prob_reversi import Position
+
+pos = Position(6, [0.5 for _ in range(6 * 6)])
+
+print(pos.is_legal(8))  # 初期局面では座標8に着手可能なのでTrueが出力される.
+print(pos.is_legal(0))  # 初期局面では座標0に着手はできないのでFalseが出力される.
+```
+
 ### パスをする
 Position.do_passメソッドを用いれば、着手を行わずに相手に手番を譲ることができる。このメソッドはPosition.can_passメソッドの戻り値の真偽に関わらず利用できる。つまり、ルール上パスできない局面もパスできる。
 
