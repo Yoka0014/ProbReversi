@@ -30,7 +30,7 @@ class GameGUI:
         self.__redraw_flag = False
 
         # event handlers
-        self.board_clicked: Callable[[int], None] = lambda: None
+        self.board_clicked: Callable[[int], None] = lambda c: None
         self.window_closed: Callable[[], None] = lambda: None
 
     def set_position(self, pos: Position):

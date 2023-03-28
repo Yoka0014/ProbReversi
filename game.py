@@ -257,7 +257,7 @@ class Game:
 
                 move_coord = player.gen_move()
                 if self.__gui is not None and isinstance(player, HumanPlayer):
-                    self.__gui.board_clicked = lambda: None
+                    self.__gui.board_clicked = lambda c: None
 
                 if not (move_coord in pos.get_next_moves()):
                     print(f"Error: Player played invalid move at {pos.convert_coord_to_str(move_coord)}.")
