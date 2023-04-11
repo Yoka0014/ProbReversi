@@ -316,6 +316,13 @@ class Position:
         現在の手番からみた石差を返す.
         """
         return self.__player.bit_count() - self.__opponent.bit_count()
+    
+    def get_score_from(self, color: DiscColor) -> int:
+        """
+        与えられた石の色からみた石差を返す.
+        """
+        score = self.get_score()
+        return score if self.__side_to_move == color else -score
 
     def can_pass(self) -> bool:
         """

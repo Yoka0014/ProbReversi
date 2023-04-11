@@ -198,8 +198,7 @@ class Game:
             worker = partial(self.__start, game_num=game_num, swap_player_for_each_game=swap_player_for_each_game)
             self.__gui = GameGUI(worker, gui_size)
             self.__show_pos = lambda pos: self.__gui.set_position(pos)
-            self.__gui.window_closed = lambda: os._exit(0)  # ToDo: 対局中にウインドウを閉じられると, 対局スレッドだけが生き続けるので, 
-                                                            # os._exitで強制終了させている. あまり良いやり方ではないので要修正.
+            self.__gui.window_closed = lambda: os._exit(0) 
             self.__gui.start()
         else:
             self.__gui = None

@@ -16,8 +16,6 @@ class RandomMover(IPlayer):
         self.__pos = pos
     
     def gen_move(self) -> int:
-        import time
-        time.sleep(1)
         return self.__pos.sample_next_move()
     
     def do_move(self, move: Move):
