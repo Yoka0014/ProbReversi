@@ -523,3 +523,59 @@ def do_pass(self):
 
 ![対局の流れ](https://user-images.githubusercontent.com/128400304/232414781-2efc73a2-d075-4785-83fa-c92bec516d1b.jpg)
 
+## プレイヤーの作り方
+プレイヤーはクラスとして実装して，そのクラスはIPlayerインターフェースを実装する． 
+自作するプレイヤーをMyPlayerとして以下説明する．
+
+```python
+from game import IPlayer
+from prob_reversi import Move, Position
+
+class MyPlayer(IPlayer):
+    def __init__(self):
+        self.__pos = Position(4)
+    
+    @property
+    def name(self):
+        return "My Player"
+
+    def set_position(self, pos: Position):
+        self.__pos = pos
+    
+    def gen_move(self) -> int:
+        pos = self.__pos
+        moves = pos.get_next_moves()
+        return max(moves, lambda c: pos.TRANS_PROB[c])
+    
+    def do_move(self, move: Move):
+        self.__pos.do_move(move)
+
+    def do_pass(self):
+        self.__pos.do_pass()
+
+```
+
+### コンストラクタ
+コンストラクタでは，プレイヤーが内部で保有する値を初期化する．  
+MyPlayerの場合は，盤面のみを保有するので，盤面の初期化のみを行う.
+
+### nameプロパティ
+自分のプレイヤーの名前を返せばよい．
+
+### set_position関数
+新しい盤面を設定するときに呼び出される. 
+新しい盤面がセットされた際に，他に何かやりたい処理があれば適宜この関数内に書く．　
+
+### gen_move関数
+次の着手を決定する関数．現在の盤面から，次の手を決定して，その座標を返せばよい．　　
+例としてMyPlayerでは，着手成功確率が最も高い場所に着手するように実装している．
+
+### do_move関数
+この関数が呼び出されたとき，引数で与えられたMoveオブジェクトに基づいて，自身が保有するPositionオブジェクトを更新する. 
+盤面の更新の際に，ほかに何かやりたい処理があれば，この関数内に書く．
+
+### do_pass関数
+do_move関数のパスバージョン． 
+相手がパスしたときは，これが呼び出される.
+
+
