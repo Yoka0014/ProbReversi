@@ -135,6 +135,8 @@ opponent = pos.opponent_color # opponent == DiscColor.WHITE
 
 pos.do_move_at(8) # 1手進めると, pos.side_to_move　と pos.opponent_color の値が入れ替わる.
 
+player = pos.side_to_move 
+opponent = pos.opponent_color 
 print(player == DiscColor.WHITE)  # Trueが出力される.
 print(opponent == DiscColor.BLACK) # Trueが出力される.
 ```
