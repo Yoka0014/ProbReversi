@@ -135,6 +135,8 @@ opponent = pos.opponent_color # opponent == DiscColor.WHITE
 
 pos.do_move_at(8) # 1手進めると, pos.side_to_move　と pos.opponent_color の値が入れ替わる.
 
+player = pos.side_to_move 
+opponent = pos.opponent_color 
 print(player == DiscColor.WHITE)  # Trueが出力される.
 print(opponent == DiscColor.BLACK) # Trueが出力される.
 ```
@@ -274,7 +276,7 @@ print(pos is pos_2)  # 異なるインスタンスなのでFalse.
 Position.is_gameoverメソッドで終局かどうか判定できる。ただし、探索などで僅かでも速度を求めるなら、このメソッドは使わずに「パスが2回連続発生したら終局」という判定方法の方が高速。
 
 ### 石差の取得
-現在の手番側からみた石差を取得したい場合は、Position.get_scoreメソッドを用いる。 例えば、手番の石が33個、相手の石が4個ある場合、 $33 - 4 = 28$ がPosition.get_scoreメソッドの戻り値となる。
+現在の手番側からみた石差を取得したい場合は、Position.get_scoreメソッドを用いる。 例えば、手番の石が33個、相手の石が4個ある場合、 $33 - 4 = 29$ がPosition.get_scoreメソッドの戻り値となる。
 
 ### パスが可能な局面かどうか判定する
 リバーシでは、手番のプレイヤーが置ける場所がない場合、パスをして相手に手番を譲る。パスが可能かどうかの判定はPosition.can_passメソッドで行う。Position.can_passメソッドは、パスが可能ならTrue、そうでなければFalseを返す。  
@@ -409,3 +411,177 @@ print(pos.do_move_at(0))    # この時点で座標0に石は置けないのでF
 ### Position.do_moveメソッドとPosition.do_move_atメソッドの使い分け
 Position.do_move_atメソッドは合法手判定を行う分、速度が遅いので、探索などで用いる場合は、Position.do_moveを用いるべき。なぜなら、探索プログラムが正しく実装されていれば、Position.do_moveに非合法手が渡されるはずがないから(もちろんデバッグ時は合法手判定を挟んだほうがよいかもしれない)。  
 UIからユーザーの着手を受け付ける場合は、Position.do_move_atメソッド用いるほうが適切。ユーザーは誤って非合法手を入力してしまう場合があるので。
+
+## オリジナルのプレイヤーを作る
+
+### プレイヤーのインターフェース
+オリジナルのプレイヤー(エージェント)はクラスの形で実装する。あらゆるプレイヤークラスは、game.pyで定義されているIPlayerインターフェースを実装する必要がある。このインターフェースを
+実装することで、異なる仕組みで動作するプレイヤー同士を対戦させることができる。IPlayerは以下のように定義されている。
+
+```python
+from abc import ABCMeta, abstractproperty, abstractmethod  # 抽象クラスを定義するために必要.
+from prob_reversi import Move, Position
+
+class IPlayer(metaclass=ABCMeta):
+    """
+    プレイヤーが実装するインターフェース.
+    """
+    @abstractproperty
+    def name(self) -> str:
+        """
+        プレイヤーの名前.
+        """
+        pass
+
+    @abstractmethod
+    def set_position(self, pos: Position):
+        """
+        局面を設定する.
+        """
+        pass
+
+    @abstractmethod
+    def gen_move(self) -> int:
+        """
+        着手を決定して返す.
+        """
+        pass
+
+    @abstractmethod
+    def do_move(self, move: Move):
+        """
+        与えられた着手で局面を更新する.
+        """
+        pass
+
+    @abstractmethod
+    def do_pass(self):
+        """
+        パスをする.
+        """
+        pass
+```
+
+### プレイヤークラスを定義する
+ここでは、新たに作るプレイヤーの名前をMyPlayerとする。自作のプレイヤーには以下のようにIPlayerクラスを継承させる。
+
+```python
+from game import IPlayer
+from prob_reversi import Move, Position
+
+class MyPlayer(IPlayer):
+    def __init__(self):
+        self.__pos = Position(4)
+```
+
+### プレイヤーの名前を設定する
+以下、クラスの宣言部分は省略して記述する。
+プレイヤーの名前は、IPlayer.nameメソッドを定義して、それを利用して名前を返す。nameメソッドには@property属性を付ける。
+
+```python
+@property
+def name(self):
+    return "My Player"
+```
+
+### 盤面を設定する
+対局開始時に、現在の盤面が後述のGameクラスによって通知される。その際に呼び出されるのがIPlayer.set_positionメソッド。set_positionメソッドでは、現在の盤面を設定すると共に必要であれば、プレイヤーの初期化を行う。以下のコードはset_positionメソッドの最低限の実装。
+
+```python
+def set_position(self, pos: Position):
+    self.__pos = pos
+```
+
+### 着手を決定する
+対局中に手番になると、Gameクラスからgen_moveメソッドが呼び出される。このメソッドでは次に着手する場所の座標を戻り値で返す。ただし、盤面の更新はこの時点では行わず、後述のIPlayer.do_moveメソッドで行うこと。以下のコードは、着手成功確率が最も高い場所に着手する実装。
+
+```python
+def gen_move(self) -> int:
+    pos = self.__pos
+    moves = pos.get_next_moves()
+    return max(moves, lambda c: pos.TRANS_PROB[c])
+```
+
+### 盤面を更新する
+どちらか一方のプレイヤーが着手した後、Gameクラスによって両プレイヤーのIPlayer.do_moveメソッドが呼び出されることで、両プレイヤーが保持する盤面が更新される。
+以下のコードはdo_moveメソッドの最低限の実装。
+
+```python
+def do_move(self, move: Move):
+    self.__pos.do_move(move)
+```
+
+### パスの時
+現在のプレイヤーに石を置ける場所がない場合は、Gameクラスによって両プレイヤーのIPlayer.do_passメソッドが呼び出される。
+以下のコードはdo_passメソッドの最低限の実装。
+
+```python
+def do_pass(self):
+    self.__pos.do_pass()
+```
+
+## プレイヤーの作り方
+プレイヤーはクラスとして実装して，そのクラスはIPlayerインターフェースを実装する． 
+自作するプレイヤーをMyPlayerとして以下説明する．
+
+```python
+from game import IPlayer
+from prob_reversi import Move, Position
+
+class MyPlayer(IPlayer):
+    def __init__(self):
+        self.__pos = Position(4)
+    
+    @property
+    def name(self):
+        return "My Player"
+
+    def set_position(self, pos: Position):
+        self.__pos = pos
+    
+    def gen_move(self) -> int:
+        pos = self.__pos
+        moves = pos.get_next_moves()
+        return max(moves, lambda c: pos.TRANS_PROB[c])
+    
+    def do_move(self, move: Move):
+        self.__pos.do_move(move)
+
+    def do_pass(self):
+        self.__pos.do_pass()
+
+```
+
+### コンストラクタ
+コンストラクタでは，プレイヤーが内部で保有する値を初期化する．  
+MyPlayerの場合は，盤面のみを保有するので，盤面の初期化のみを行う.
+
+### nameプロパティ
+自分のプレイヤーの名前を返せばよい．
+
+### set_position関数
+新しい盤面を設定するときに呼び出される. 
+新しい盤面がセットされた際に，他に何かやりたい処理があれば適宜この関数内に書く．　
+
+### gen_move関数
+次の着手を決定する関数．現在の盤面から，次の手を決定して，その座標を返せばよい．　　
+例としてMyPlayerでは，着手成功確率が最も高い場所に着手するように実装している．
+
+### do_move関数
+この関数が呼び出されたとき，引数で与えられたMoveオブジェクトに基づいて，自身が保有するPositionオブジェクトを更新する. 
+盤面の更新の際に，ほかに何かやりたい処理があれば，この関数内に書く．
+
+### do_pass関数
+do_move関数のパスバージョン． 
+相手がパスしたときは，これが呼び出される.
+
+
+## オリジナルのプレイヤーを対戦させる
+プレイヤー同士の対戦は、Gameクラス(game.py)によって管理される。具体的な対局の流れは以下の通り。
+
+![対局の流れ](https://user-images.githubusercontent.com/128400304/232414781-2efc73a2-d075-4785-83fa-c92bec516d1b.jpg)
+
+### 対戦のさせ方
+
+
+
