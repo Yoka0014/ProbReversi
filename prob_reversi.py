@@ -175,6 +175,14 @@ class Position:
         if copy_trans_prob:
             dest.TRANS_PROB = copy.copy(self.TRANS_PROB)
 
+    def to_index(self) -> int:
+        index = 0
+        d = 1
+        for i in range(self.SQUARE_NUM):
+            index = d * self.get_square_owner_at(i)
+            d *= 3
+        return index
+
     def get_disc_count_of(self, color: DiscColor) -> int:
         """
         指定された色の石の数を返す.
@@ -206,6 +214,26 @@ class Position:
         """
         ret = 2 - 2 * ((self.__player // (1 << coord)) & 1) - ((self.__opponent // (1 << coord)) & 1)
         return Player(ret)
+    
+    def get_player_disc_coords(self):
+        """
+        現在の手番の石が配置されている座標を取得する.
+        """
+        player = self.__player
+        while player:
+            coord = (player & -player).bit_length() - 1  
+            yield coord
+            player &= (player - 1)
+
+    def get_opponent_disc_coords(self):
+        """
+        相手の石が配置されている座標を取得する.
+        """
+        opponent = self.__opponent
+        while opponent:
+            coord = (opponent & -opponent).bit_length() - 1  
+            yield coord
+            opponent &= (opponent - 1)
     
     def parse_coord(self, coord_str: str) -> int:
         """

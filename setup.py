@@ -7,8 +7,8 @@ from distutils.extension import Extension
 from Cython.Distutils import build_ext
 
 source = [
-    "cpp/__prob_reversi_helper.cpp",
-    "cpp/prob_reversi_helper.pyx"
+    "cpp/helper.cpp",
+    "cpp/helper.pyx"
     ]
 
 setup(

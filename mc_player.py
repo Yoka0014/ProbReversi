@@ -26,8 +26,10 @@ class MCPlayer(IPlayer):
             pos = self.__pos.copy()
             pos.do_move_at(move)
             value = 0.0
+            p = pos.copy()
             for _ in range(self.__playout_num):
-                value += self.__playout(pos.copy(), side_to_move)
+                value += self.__playout(p, side_to_move)
+                pos.copy_to(p)
             value /= self.__playout_num
             values.append(value)
         return moves[max(enumerate(values), key=lambda x: x[1])[0]]

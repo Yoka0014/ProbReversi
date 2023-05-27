@@ -4,7 +4,7 @@ prob_reversi_helperのラッパー.
 from libcpp cimport bool
 
 
-cdef extern from "prob_reversi_helper.h":
+cdef extern from "helper.h":
     cdef cppclass __Helper:
         __Helper(int)
         unsigned long long calc_mobility(unsigned long long p, unsigned long long o)

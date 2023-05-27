@@ -1,4 +1,4 @@
-#include "prob_reversi_helper.h"
+#include "helper.h"
 
 #include <cstring>
 

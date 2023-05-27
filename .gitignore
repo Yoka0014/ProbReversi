@@ -2,5 +2,7 @@ test.py
 prob_reversi_helper.cp310-win_amd64.pyd
 prob_reversi_helper.cpp
 /build
+/dist
 /.vscode
 /__pycache__
+*.exe
