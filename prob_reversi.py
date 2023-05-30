@@ -377,6 +377,7 @@ class Position:
         着手可能な位置を取得する.
         """
         mobility = self.__helper.calc_mobility(self.__player, self.__opponent)
+
         while mobility:
             coord = (mobility & -mobility).bit_length() - 1  
             yield coord

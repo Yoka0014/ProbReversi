@@ -6,3 +6,4 @@ prob_reversi_helper.cpp
 /.vscode
 /__pycache__
 *.exe
+*.h5
