@@ -9,11 +9,22 @@ from typing import Any
 import numpy as np
 import tensorflow as tf
 from keras.layers import Conv2D, Flatten, Dense, BatchNormalization, Activation
-from keras.models import Sequential, load_model, clone_model
+from keras.models import Sequential, load_model
 from keras.optimizers import Adam
 from keras.losses import Huber
 
 from prob_reversi import Position, Move
+
+
+"""
+NNに入力するデータのチャンネル数.
+
+channel = 1: 現在の手番の石の配置(2値画像)
+channel = 2: 相手の手番の石の配置(2値画像)
+channel = 3: 着手可能位置(2値画像)
+channel = 4: 各マス目の確率(各要素が0.0~1.0)
+"""
+NN_NUM_CHANNEL = 4  
 
 
 def position_to_input(pos: Position, dest: np.ndarray = None) -> np.ndarray:
@@ -23,7 +34,7 @@ def position_to_input(pos: Position, dest: np.ndarray = None) -> np.ndarray:
     Parameters
     ----------
     pos: Position
-        盤面．s
+        盤面．
 
     dest: np.ndarray
         書き込み先のndarray. Noneの場合は関数内で新たに作る.
@@ -34,18 +45,26 @@ def position_to_input(pos: Position, dest: np.ndarray = None) -> np.ndarray:
         引数のdestと同じ参照.
     """
     if dest is None:
-        dest = np.empty(shape=(pos.SIZE, pos.SIZE, 2))
-    elif dest.shape != (pos.SIZE, pos.SIZE, 2):
+        dest = np.empty(shape=(pos.SIZE, pos.SIZE, NN_NUM_CHANNEL))
+    elif dest.shape != (pos.SIZE, pos.SIZE, NN_NUM_CHANNEL):
         raise ValueError("The shape of dest must be (pos.SIZE, pos.SIZE, 2).")
 
     dest.fill(0.0)
     for coord in pos.get_player_disc_coords():
         x, y = pos.convert_coord1D_to_coord2D(coord)
-        dest[x][y][0] = 1
+        dest[x][y][0] = 1.0
 
     for coord in pos.get_opponent_disc_coords():
         x, y = pos.convert_coord1D_to_coord2D(coord)
-        dest[x][y][1] = 1
+        dest[x][y][1] = 1.0
+
+    for coord in pos.get_next_moves():
+        x, y = pos.convert_coord1D_to_coord2D(coord)
+        dest[x][y][2] = 1.0
+
+    for coord, prob in enumerate(pos.TRANS_PROB):
+        x, y = pos.convert_coord1D_to_coord2D(coord)
+        dest[x][y][3] = prob
 
     return dest
 
@@ -81,7 +100,7 @@ class QNetwork:
         self.__model = Sequential()
         model = self.__model
 
-        model.add(Conv2D(k, (3, 3), padding="same", input_shape=(size, size, 2)))
+        model.add(Conv2D(k, (3, 3), padding="same", input_shape=(size, size, NN_NUM_CHANNEL)))
         model.add(BatchNormalization())
         model.add(Activation("relu"))
 
@@ -124,7 +143,7 @@ class QNetwork:
         盤面を受け取って，その盤面における各マスの行動価値を出力する.
         """
         size = pos.SIZE
-        x = np.zeros(shape=(1, size, size, 2))
+        x = np.zeros(shape=(1, size, size, NN_NUM_CHANNEL))
         position_to_input(pos, x[0])
         return self.predict(x, batch_size=1)
     
