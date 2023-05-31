@@ -7,23 +7,25 @@ import random
 import numpy as np
 import tensorflow as tf
 
-from dqn import QNetwork, Episode, ReplayBuffer, position_to_input
+from dqn import NN_NUM_CHANNEL, QNetwork, Episode, ReplayBuffer, position_to_input
 from prob_reversi import Position, Move
 
 
 class DQNConfig:
     def __init__(self):
         self.board_size = 6
-        # self.trans_prob = [0.8, 0.2, 0.5, 0.5, 0.2, 0.8,
-        #                    0.2, 0.2, 0.5, 1.0, 0.2, 0.2,
-        #                    0.5, 0.5, 1.0, 1.0, 1.0, 0.5,
-        #                    0.5, 1.0, 1.0, 1.0, 0.5, 0.5,
-        #                    0.8, 0.8, 1.0, 0.5, 0.8, 0.8,
-        #                    0.2, 0.8, 0.5, 0.5, 0.8, 0.2]
-        self.trans_prob = [1.0 for _ in range(36)]
+        self.trans_prob = [0.8, 0.2, 0.5, 0.5, 0.2, 0.8,
+                           0.2, 0.2, 0.5, 1.0, 0.2, 0.2,
+                           0.5, 0.5, 1.0, 1.0, 1.0, 0.5,
+                           0.5, 1.0, 1.0, 1.0, 0.5, 0.5,
+                           0.8, 0.8, 1.0, 0.5, 0.8, 0.8,
+                           0.2, 0.8, 0.5, 0.5, 0.8, 0.2]
+        
+        self.nn_optimizer = tf.optimizers.Adam(lr=0.001)
+        self.nn_loss_function = tf.losses.Huber()
 
         self.batch_size = 256
-        self.checkpoint_interval = 5    # target networkを更新する間隔. (checkpoint_interval * batch_size)回のエピソード終了毎にtarget networkが更新される.
+        self.update_target_interval = 5    # target networkを更新する間隔. (checkpoint_interval * batch_size)回のエピソード終了毎にtarget networkが更新される.
         self.train_steps = 10000     # NNのパラメータを何回更新するか.
         self.warmup_size = self.batch_size * 100    # ReplayBufferに何エピソード溜まったら学習を開始するか.
         self.replay_buffer_capasity = 1000000 // (self.board_size ** 2 - 4)     # Replay bufferのサイズ.
@@ -33,14 +35,13 @@ class DQNConfig:
         self.epsilon_end = 0.05     # epsilonの最小値
         self.epsilon_decay = 2000  # epsilonの減衰速度
 
-        self.num_evaluation_game_batch = 2  # 強さを評価する際に行う対局のバッチ数. num_evaluation_game_batch * batch_size 分の対局が行われる.
-
         self.model_path = "qnet_{0}.h5"
+        self.save_network_interval = 100    # Q-Networkのパラメータを保存する間隔. (checkpoint_interval * batch_size)回のエピソード終了毎に保存される.
 
 
 class SharedStorage:
     def __init__(self, config: DQNConfig):
-        self.qnet = QNetwork(config.board_size)
+        self.qnet = QNetwork(config.board_size, optimizer=config.nn_optimizer, loss=config.nn_loss_function)
         self.target_net = QNetwork(src=self.qnet)
         self.replay_buffer = ReplayBuffer(config.replay_buffer_capasity, config.board_size)
 
@@ -62,7 +63,7 @@ def exec_episodes(config: DQNConfig, shared: SharedStorage):
     """
     board_size, batch_size = config.board_size, config.batch_size
     positions = [Position(config.board_size, trans_prob=config.trans_prob) for _ in range(batch_size)]
-    batch = np.empty((batch_size, board_size, board_size , 2)).astype(np.float32)
+    batch = np.empty((batch_size, board_size, board_size , NN_NUM_CHANNEL)).astype(np.float32)
     episodes = list(map(lambda pos: Episode(pos), positions))
     replay_buffer = shared.replay_buffer
     qnet = shared.qnet
@@ -119,8 +120,8 @@ def train(config: DQNConfig, shared: SharedStorage) -> bool:
     qnet, target_net, replay_buffer = shared.qnet, shared.target_net, shared.replay_buffer
 
     batch = replay_buffer.sample_batch(batch_size)
-    q_x = np.empty((batch_size, board_size, board_size, 2)).astype("float32")
-    target_x = np.empty((batch_size, board_size, board_size, 2)).astype("float32")
+    q_x = np.empty((batch_size, board_size, board_size, NN_NUM_CHANNEL)).astype("float32")
+    target_x = np.empty((batch_size, board_size, board_size, NN_NUM_CHANNEL)).astype("float32")
 
     for i, (pos, _, next_pos, _) in enumerate(batch):
         position_to_input(pos, q_x[i])
@@ -148,16 +149,23 @@ def train(config: DQNConfig, shared: SharedStorage) -> bool:
 def main(config: DQNConfig):
     shared = SharedStorage(config)
     while shared.train_count < config.train_steps:
+        # エピソードの実行
         exec_episodes(config, shared)
 
-        if shared.train_count != 0 and shared.episode_count % config.checkpoint_interval == 0:
+        if shared.train_count != 0 and shared.episode_count % config.update_target_interval == 0:
             # target netの更新
-            shared.qnet.save(config.model_path.format(shared.save_count))
-            shared.save_count += 1
             shared.target_net = QNetwork(src=shared.qnet)
+            tf.keras.backend.clear_session()    # 定期的にこの関数を呼ばないと重くなる
+            print("Info: Target-Network has been updated.")
 
-        
-        if len(shared.replay_buffer) > config.warmup_size:  # 十分なエピソードが溜まっていない.
+        if shared.train_count != 0 and shared.episode_count % config.save_network_interval == 0:
+            # Q-Networkの保存
+            path = config.model_path.format(shared.save_count)
+            shared.qnet.save(path)
+            shared.save_count += 1
+            print(f"Info: Q-Network has been saved at \"{path}\"")
+
+        if len(shared.replay_buffer) > config.warmup_size:  # 十分なエピソードが溜まっていないときは学習しない
             train(config, shared)
 
     shared.qnet.save(config.model_path.format("final"))
