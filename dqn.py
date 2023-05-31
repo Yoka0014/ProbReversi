@@ -23,7 +23,7 @@ def position_to_input(pos: Position, dest: np.ndarray = None) -> np.ndarray:
     Parameters
     ----------
     pos: Position
-        盤面．
+        盤面．s
 
     dest: np.ndarray
         書き込み先のndarray. Noneの場合は関数内で新たに作る.
@@ -57,7 +57,7 @@ class QNetwork:
     先手の石の配置と後手の石の配置を (2, board_size, board_size) の三次元データとして入力し，各マス目の行動価値を board_size * board_size + 1 次元のベクトルとして出力するNN．
     """
 
-    def __init__(self, board_size=6, kernel_num=128, model_path: str = None, optimizer=Adam(lr=0.001), loss=Huber()):
+    def __init__(self, board_size=6, kernel_num=128, model_path: str = None, src=None, optimizer=Adam(lr=0.001), loss=Huber()):
         if model_path is not None:
             self.__model = load_model(model_path)
         else:
@@ -66,8 +66,14 @@ class QNetwork:
             self.__model = Sequential()
             self.__init_model()
 
+        if src is not None and type(src) is QNetwork:
+            self.__model.set_weights(src.__model.get_weights())
+
         self.__optimizer = optimizer
         self.__loss_func = loss
+
+    def __del__(self):
+        del self.__model
 
     def __init_model(self):
         size = self.__BOARD_SIZE

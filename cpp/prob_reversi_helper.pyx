@@ -17,6 +17,9 @@ cdef class Helper:
     def __cinit__(self, size):
         self.__this_ptr = new __Helper(size)
 
+    def __delalloc(self):
+        del self.__this_ptr
+
     def calc_mobility(self, p, o):
         return self.__this_ptr.calc_mobility(p, o)
 

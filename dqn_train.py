@@ -22,81 +22,101 @@ class DQNConfig:
         #                    0.2, 0.8, 0.5, 0.5, 0.8, 0.2]
         self.trans_prob = [1.0 for _ in range(36)]
 
-        self.batch_size = 32
-        self.step_size = 16     # 何エピソードごとに学習を行うか.
-        self.train_steps = 10000     # NNを何ステップ分学習を行うか.
-        self.window_size = 2000     # Replay bufferのサイズ.
-        self.warmup_size = self.batch_size * 10    # ReplayBufferに何エピソード溜まったら学習を開始するか.
-        self.checkpoint_interval = 100    # 何エピソード毎にtarget networkを更新するか.
+        self.batch_size = 256
+        self.checkpoint_interval = 5    # target networkを更新する間隔. (checkpoint_interval * batch_size)回のエピソード終了毎にtarget networkが更新される.
+        self.train_steps = 10000     # NNのパラメータを何回更新するか.
+        self.warmup_size = self.batch_size * 100    # ReplayBufferに何エピソード溜まったら学習を開始するか.
+        self.replay_buffer_capasity = 1000000 // (self.board_size ** 2 - 4)     # Replay bufferのサイズ.
 
         self.discount_rate = 0.99   # 割引率
         self.epsilon_start = 0.9    # epsilonの初期値
         self.epsilon_end = 0.05     # epsilonの最小値
         self.epsilon_decay = 2000  # epsilonの減衰速度
 
-        self.num_evaluation_game = 400  # 強さを評価する際に行う対局数
+        self.num_evaluation_game_batch = 2  # 強さを評価する際に行う対局のバッチ数. num_evaluation_game_batch * batch_size 分の対局が行われる.
 
         self.model_path = "qnet_{0}.h5"
 
 
-class SharedValue:
+class SharedStorage:
     def __init__(self, config: DQNConfig):
-        self.episode_count = 0
         self.qnet = QNetwork(config.board_size)
-        self.qnet.save("qnet_init.h5")
-        self.target_net = QNetwork(model_path="qnet_init.h5")
-        self.replay_buffer = ReplayBuffer(config.window_size, config.board_size)
-        self.step_count = 0
+        self.target_net = QNetwork(src=self.qnet)
+        self.replay_buffer = ReplayBuffer(config.replay_buffer_capasity, config.board_size)
+
+        self.episode_count = 0
+        self.train_count = 0     # qnetのパラメータの更新回数.
         self.save_count = 0 
+
+        self.best_model_path = "NULL"
+        self.best_model_winrate = -float("inf")
 
 
 def epsilon(config: DQNConfig, step_count):
     return config.epsilon_end + (config.epsilon_start - config.epsilon_end) * math.exp(-step_count / config.epsilon_decay)
 
 
-def exec_episode(config: DQNConfig, shared: SharedValue):
-    print(f"episode = {shared.episode_count + 1}")
-
-    pos = Position(config.board_size, trans_prob=config.trans_prob)
-    x = np.empty((1, config.board_size, config.board_size, 2)).astype("float32")
-
-    episode = Episode(pos)
+def exec_episodes(config: DQNConfig, shared: SharedStorage):
+    """
+    バッチサイズの分だけ，まとめて対局を行う.
+    """
+    board_size, batch_size = config.board_size, config.batch_size
+    positions = [Position(config.board_size, trans_prob=config.trans_prob) for _ in range(batch_size)]
+    batch = np.empty((batch_size, board_size, board_size , 2)).astype(np.float32)
+    episodes = list(map(lambda pos: Episode(pos), positions))
     replay_buffer = shared.replay_buffer
     qnet = shared.qnet
-    e = epsilon(config, shared.step_count)
+    e = epsilon(config, shared.train_count)
 
+    episode_id = shared.episode_count + 1
+    print(f"episodes: {episode_id} to {episode_id + batch_size - 1}")
     print(f"epsilon = {e}")
 
-    pass_count = 0
-    while pass_count != 2:
-        # epsilon-greedy
-        if random.random() < e:
-            coord = pos.sample_next_move()
-        else:
-            position_to_input(pos, x[0])
-            q = qnet.predict(x, batch_size=1)[0]
-            moves = list(pos.get_next_moves())
-            coord = max(moves, key=lambda c: q[c]) if len(moves) != 0 else pos.PASS_COORD
+    pass_counts = [0] * batch_size
+    while True:
+        terminated_all = True
+        for pos, x, pass_count in zip(positions, batch, pass_counts):
+            if pass_count == 2:
+                continue
 
-        if coord == pos.PASS_COORD:
-            pass_count += 1
-            episode.add_move(Move(coord=pos.PASS_COORD))
-            continue
+            terminated_all = False
+            position_to_input(pos, x)
 
-        pass_count = 0
-        move = pos.get_move(coord)
-        pos.do_move(move)
-        episode.add_move(move)
-        
-    shared.episode_count += 1
-    replay_buffer.save_episode(episode)
+        if terminated_all:
+            break
 
+        q_batch = qnet.predict(batch, batch_size=batch_size)
+        for i, (pos, q, episode) in enumerate(zip(positions, q_batch, episodes)):
+            if pass_counts[i] == 2:
+                continue
 
-def train(config: DQNConfig, shared: SharedValue) -> bool:
+            # epsilon-greedy
+            if random.random() < e:
+                coord = pos.sample_next_move()
+            else:
+                moves = list(pos.get_next_moves())
+                coord = max(moves, key=lambda c: q[c]) if len(moves) != 0 else pos.PASS_COORD
+
+            if coord == pos.PASS_COORD:
+                pass_counts[i] += 1
+                pos.do_pass()
+                episode.add_move(Move(coord=coord))
+                continue
+
+            pass_counts[i] = 0
+            move = pos.get_move(coord)
+            pos.do_move(move)
+            episode.add_move(move)
+
+    for episode in episodes:
+        replay_buffer.save_episode(episode)
+
+    shared.episode_count += batch_size
+                
+
+def train(config: DQNConfig, shared: SharedStorage) -> bool:
     batch_size, board_size = config.batch_size, config.board_size
     qnet, target_net, replay_buffer = shared.qnet, shared.target_net, shared.replay_buffer
-    if len(replay_buffer) < config.warmup_size:  # 十分なエピソードが溜まっていない.
-        return False
 
     batch = replay_buffer.sample_batch(batch_size)
     q_x = np.empty((batch_size, board_size, board_size, 2)).astype("float32")
@@ -122,21 +142,22 @@ def train(config: DQNConfig, shared: SharedValue) -> bool:
             td_targets[i][move.coord] = -reward
 
     qnet.train(q_x, td_targets, list(map(lambda b: b[1], batch)))
-    shared.step_count += 1
+    shared.train_count += 1
+
 
 def main(config: DQNConfig):
-    shared = SharedValue(config)
-    while shared.step_count < config.train_steps:
-        exec_episode(config, shared)
+    shared = SharedStorage(config)
+    while shared.train_count < config.train_steps:
+        exec_episodes(config, shared)
 
-        if shared.step_count != 0 and shared.episode_count % config.checkpoint_interval == 0:
+        if shared.train_count != 0 and shared.episode_count % config.checkpoint_interval == 0:
             # target netの更新
-            path = config.model_path.format(shared.save_count)
-            shared.qnet.save(path)
+            shared.qnet.save(config.model_path.format(shared.save_count))
             shared.save_count += 1
-            shared.target_net = QNetwork(model_path=path)
+            shared.target_net = QNetwork(src=shared.qnet)
 
-        if shared.episode_count % config.step_size == 0:
+        
+        if len(shared.replay_buffer) > config.warmup_size:  # 十分なエピソードが溜まっていない.
             train(config, shared)
 
     shared.qnet.save(config.model_path.format("final"))
