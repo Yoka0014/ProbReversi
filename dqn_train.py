@@ -14,21 +14,21 @@ from prob_reversi import Position, Move
 class DQNConfig:
     def __init__(self):
         self.board_size = 6
-        self.trans_prob = [0.8, 0.2, 0.5, 0.5, 0.2, 0.8,
-                           0.2, 0.2, 0.5, 1.0, 0.2, 0.2,
-                           0.5, 0.5, 1.0, 1.0, 1.0, 0.5,
-                           0.5, 1.0, 1.0, 1.0, 0.5, 0.5,
-                           0.8, 0.8, 1.0, 0.5, 0.8, 0.8,
-                           0.2, 0.8, 0.5, 0.5, 0.8, 0.2]
+        self.trans_prob = [0.8, 0.8, 0.5, 0.5, 0.8, 0.8,
+                           0.8, 0.8, 0.5, 0.5, 0.8, 0.8,
+                           0.5, 0.5, 1.0, 1.0, 0.5, 0.5,
+                           0.5, 0.5, 1.0, 1.0, 0.5, 0.5,
+                           0.2, 0.2, 0.5, 0.5, 0.8, 0.8,
+                           0.2, 0.2, 0.5, 0.5, 0.8, 0.2]
         
         self.nn_optimizer = tf.optimizers.Adam(lr=0.001)
         self.nn_loss_function = tf.losses.Huber()
 
         self.batch_size = 256
-        self.update_target_interval = 5    # target networkを更新する間隔. (checkpoint_interval * batch_size)回のエピソード終了毎にtarget networkが更新される.
+        self.target_net_update_interval = 5    # target networkを更新する間隔. (target_net_update_interval * batch_size)回のエピソード終了毎にtarget networkが更新される.
         self.train_steps = 10000     # NNのパラメータを何回更新するか.
         self.warmup_size = self.batch_size * 100    # ReplayBufferに何エピソード溜まったら学習を開始するか.
-        self.replay_buffer_capasity = 1000000 // (self.board_size ** 2 - 4)     # Replay bufferのサイズ.
+        self.replay_buffer_capacity = 1000000 // (self.board_size ** 2 - 4)     # Replay bufferのサイズ.
 
         self.discount_rate = 0.99   # 割引率
         self.epsilon_start = 0.9    # epsilonの初期値
@@ -43,7 +43,7 @@ class SharedStorage:
     def __init__(self, config: DQNConfig):
         self.qnet = QNetwork(config.board_size, optimizer=config.nn_optimizer, loss=config.nn_loss_function)
         self.target_net = QNetwork(src=self.qnet)
-        self.replay_buffer = ReplayBuffer(config.replay_buffer_capasity, config.board_size)
+        self.replay_buffer = ReplayBuffer(config.replay_buffer_capacity, config.board_size)
 
         self.episode_count = 0
         self.train_count = 0     # qnetのパラメータの更新回数.
@@ -152,7 +152,7 @@ def main(config: DQNConfig):
         # エピソードの実行
         exec_episodes(config, shared)
 
-        if shared.train_count != 0 and shared.episode_count % config.update_target_interval == 0:
+        if shared.train_count != 0 and shared.episode_count % config.target_net_update_interval == 0:
             # target netの更新
             shared.target_net = QNetwork(src=shared.qnet)
             tf.keras.backend.clear_session()    # 定期的にこの関数を呼ばないと重くなる
