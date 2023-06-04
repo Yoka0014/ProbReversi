@@ -7,3 +7,4 @@ prob_reversi_helper.cpp
 /__pycache__
 *.exe
 *.h5
+*.txt
