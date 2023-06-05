@@ -12,19 +12,22 @@ from prob_reversi import Position, Move
 
 
 class DQNConfig:
+    """
+    学習全般の設定
+    """
     def __init__(self):
-        self.board_size = 6
-        self.trans_prob = [0.8, 0.8, 0.5, 0.5, 0.8, 0.8,
+        self.board_size = 8     # 盤面サイズ
+        self.trans_prob = [0.8, 0.8, 0.5, 0.5, 0.8, 0.8,    # 盤面の各マスの着手成功確率
                            0.8, 0.8, 0.5, 0.5, 0.8, 0.8,
                            0.5, 0.5, 1.0, 1.0, 0.5, 0.5,
                            0.5, 0.5, 1.0, 1.0, 0.5, 0.5,
                            0.2, 0.2, 0.5, 0.5, 0.8, 0.8,
                            0.2, 0.2, 0.5, 0.5, 0.8, 0.2]
         
-        self.nn_optimizer = tf.optimizers.Adam(lr=0.001)
-        self.nn_loss_function = tf.losses.Huber()
+        self.nn_optimizer = tf.optimizers.Adam(lr=0.001)    # QNetworkのオプティマイザ
+        self.nn_loss_function = tf.losses.Huber()   # QNetworkの損失関数
 
-        self.batch_size = 256
+        self.batch_size = 256   # QNetworkに入力するバッチサイズ.
         self.target_net_update_interval = 5    # target networkを更新する間隔. (target_net_update_interval * batch_size)回のエピソード終了毎にtarget networkが更新される.
         self.train_steps = 10000     # NNのパラメータを何回更新するか.
         self.warmup_size = self.batch_size * 100    # ReplayBufferに何エピソード溜まったら学習を開始するか.
@@ -40,6 +43,26 @@ class DQNConfig:
 
 
 class SharedStorage:
+    """
+    共有変数など
+
+    Parameters
+    ----------
+    qnet: QNetwork
+        学習対象のQNetwork
+
+    target_net: QNetwork
+        ターゲットネットワーク
+
+    replay_buffer: ReplayBuffer
+        経験再生バッファ
+
+    episode_count: int
+        今までのエピソード数
+
+    train_count: int
+        今までのQNetworkのパラメータ更新回数
+    """
     def __init__(self, config: DQNConfig):
         self.qnet = QNetwork(config.board_size, optimizer=config.nn_optimizer, loss=config.nn_loss_function)
         self.target_net = QNetwork(src=self.qnet)
@@ -49,11 +72,20 @@ class SharedStorage:
         self.train_count = 0     # qnetのパラメータの更新回数.
         self.save_count = 0 
 
-        self.best_model_path = "NULL"
-        self.best_model_winrate = -float("inf")
 
+def epsilon(config: DQNConfig, step_count: int):
+    """
+    epsilon-greedy方策で用いるepsilonを算出する.
 
-def epsilon(config: DQNConfig, step_count):
+    Parameters
+    ----------
+    config: DQNConfig
+        学習全体の設定
+
+    step_count: int
+        今までのQNetworkの更新回数
+        
+    """
     return config.epsilon_end + (config.epsilon_start - config.epsilon_end) * math.exp(-step_count / config.epsilon_decay)
 
 
@@ -77,7 +109,7 @@ def exec_episodes(config: DQNConfig, shared: SharedStorage):
     while True:
         terminated_all = True
         for pos, x, pass_count in zip(positions, batch, pass_counts):
-            if pass_count == 2:
+            if pass_count == 2: # パスが2連続で発生したら終局.
                 continue
 
             terminated_all = False
@@ -88,15 +120,15 @@ def exec_episodes(config: DQNConfig, shared: SharedStorage):
 
         q_batch = qnet.predict(batch, batch_size=batch_size)
         for i, (pos, q, episode) in enumerate(zip(positions, q_batch, episodes)):
-            if pass_counts[i] == 2:
+            if pass_counts[i] == 2: # 終局している局面は無視.
                 continue
 
-            # epsilon-greedy
+            # epsilon-greedy方策に従って着手を決める.
             if random.random() < e:
-                coord = pos.sample_next_move()
+                coord = pos.sample_next_move()  # random
             else:
                 moves = list(pos.get_next_moves())
-                coord = max(moves, key=lambda c: q[c]) if len(moves) != 0 else pos.PASS_COORD
+                coord = max(moves, key=lambda c: q[c]) if len(moves) != 0 else pos.PASS_COORD   # greedy
 
             if coord == pos.PASS_COORD:
                 pass_counts[i] += 1
@@ -116,17 +148,24 @@ def exec_episodes(config: DQNConfig, shared: SharedStorage):
                 
 
 def train(config: DQNConfig, shared: SharedStorage) -> bool:
+    """
+    shared.replay_bufferからconfig.batch_sizeのバッチを作り, それを用いてQNetworkのパラメータを1回更新する.
+    """
     batch_size, board_size = config.batch_size, config.board_size
     qnet, target_net, replay_buffer = shared.qnet, shared.target_net, shared.replay_buffer
 
     batch = replay_buffer.sample_batch(batch_size)
-    q_x = np.empty((batch_size, board_size, board_size, NN_NUM_CHANNEL)).astype("float32")
-    target_x = np.empty((batch_size, board_size, board_size, NN_NUM_CHANNEL)).astype("float32")
+    q_x = np.empty((batch_size, board_size, board_size, NN_NUM_CHANNEL)).astype(np.float32)  # QNetworkへの入力を格納するバッチ.
+    target_x = np.empty((batch_size, board_size, board_size, NN_NUM_CHANNEL)).astype(np.float32)     # ターゲットネットワークへの入力を格納するバッチ.
 
     for i, (pos, _, next_pos, _) in enumerate(batch):
+        """
+        バッチ内の局面をNNへの入力データに変換.
+        """
         position_to_input(pos, q_x[i])
         position_to_input(next_pos, target_x[i])
-        
+    
+    # ターゲットネットワークの出力からTDターゲットを作成.
     target_out = target_net.predict(target_x, batch_size)
     td_targets = np.zeros((batch_size, board_size ** 2 + 1))
     for i, (_, move, next_pos, reward) in enumerate(batch):
