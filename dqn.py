@@ -19,8 +19,7 @@ from prob_reversi import Position, Move
 NNに入力するデータのチャンネル数.
 
 channel = 1: 現在の手番の石の配置(2値画像)
-channel = 2: 相手の手番の石の配置(2値画像)
-channel = 3: 着手可能位置(2値画像)
+channel = 2: 相手の石の配置(2値画像)
 """
 NN_NUM_CHANNEL = 3
 
@@ -32,7 +31,7 @@ def position_to_input(pos: Position, dest: np.ndarray = None) -> np.ndarray:
     Parameters
     ----------
     pos: Position
-        盤面．
+        局面．
 
     dest: np.ndarray
         書き込み先のndarray. Noneの場合は関数内で新たに作る.
@@ -56,10 +55,6 @@ def position_to_input(pos: Position, dest: np.ndarray = None) -> np.ndarray:
         x, y = pos.convert_coord1D_to_coord2D(coord)
         dest[x][y][1] = 1.0
 
-    for coord in pos.get_next_moves():
-        x, y = pos.convert_coord1D_to_coord2D(coord)
-        dest[x][y][2] = 1.0
-
     return dest
 
 
@@ -67,7 +62,7 @@ class QNetwork:
     """
     Qネットワーク
 
-    先手の石の配置と後手の石の配置を (NN_NUM_CHANNEL, board_size, board_size) の三次元データとして入力し，
+    先手の石の配置と後手の石の配置を (board_size, board_size, NN_NUM_CAHNNEL) の三次元データとして入力し，
     各マス目の行動価値を board_size * board_size + 1 次元のベクトルとして出力するNN．
     """
 
