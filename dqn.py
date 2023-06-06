@@ -8,7 +8,7 @@ from collections import deque
 import numpy as np
 import tensorflow as tf
 from keras.layers import Conv2D, Flatten, Dense, BatchNormalization, Activation
-from keras.models import Sequential, load_model
+from keras.models import Sequential, load_model, clone_model
 from keras.optimizers import Adam
 from keras.losses import Huber
 
@@ -103,6 +103,15 @@ class QNetwork:
         if model_path is not None:  
             # ファイルが指定されていれば，そこからモデルを読む．
             self.__model = load_model(model_path)
+        elif src is not None and type(src) is QNetwork:
+            # 引数でコピー元のQNetworkが指定されていれば，そのパラメータをself.__modelにコピーする．
+            self.__BOARD_SIZE = src.__model.input_shape[0]
+            self.__model = clone_model(src.__model)
+            self.__model.set_weights(src.__model.get_weights())
+            if copy_optimizer:
+                optimizer = src.__model.optimizer
+            if copy_loss:
+                loss = src.__model.loss
         else:
             # 引数で指定された盤面サイズとカーネル数に基づいてモデルを構築する.
             self.__BOARD_SIZE = board_size
@@ -110,14 +119,6 @@ class QNetwork:
             self.__LAYER_NUM = layer_num
             self.__model = Sequential()
             self.__init_model()
-
-        if src is not None and type(src) is QNetwork:
-            # 引数でコピー元のQNetworkが指定されていれば，そのパラメータをself.__modelにコピーする．
-            self.__model.set_weights(src.__model.get_weights())
-            if copy_optimizer:
-                optimizer = src.__model.optimizer
-            if copy_loss:
-                loss = src.__model.loss
 
         # 引数で指定されたオプティマイザと損失関数をモデルに登録.
         self.__model.compile(optimizer=optimizer, loss=loss)
@@ -136,7 +137,7 @@ class QNetwork:
 
         for _ in range(self.__LAYER_NUM - 1):
             # (層数 - 1)回だけ 畳み込み->バッチ正規化->ReLU関数 の流れを繰り返す(最後の1層は出力層)
-            model.add(Conv2D(k, (3, 3), padding="same", input_shape=(size, size, NN_NUM_CHANNEL)))
+            model.add(Conv2D(k, (3, 3), padding="same", input_shape=(size, size, NN_NUM_CHANNEL), use_bias=False))
             model.add(BatchNormalization())
             model.add(Activation("relu"))
 

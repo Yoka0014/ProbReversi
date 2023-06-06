@@ -17,12 +17,7 @@ class DQNConfig:
     """
     def __init__(self):
         self.board_size = 8     # 盤面サイズ
-        self.trans_prob = [0.8, 0.8, 0.5, 0.5, 0.8, 0.8,    # 盤面の各マスの着手成功確率
-                           0.8, 0.8, 0.5, 0.5, 0.8, 0.8,
-                           0.5, 0.5, 1.0, 1.0, 0.5, 0.5,
-                           0.5, 0.5, 1.0, 1.0, 0.5, 0.5,
-                           0.2, 0.2, 0.5, 0.5, 0.8, 0.8,
-                           0.2, 0.2, 0.5, 0.5, 0.8, 0.2]
+        self.trans_prob = [1.0] * 64
         
         self.nn_optimizer = tf.optimizers.Adam(lr=0.001)    # QNetworkのオプティマイザ
         self.nn_loss_function = tf.losses.Huber()   # QNetworkの損失関数

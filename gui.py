@@ -131,7 +131,7 @@ class GameGUI:
                     x = margin + i * grid_size + half_grid_size
                     y = margin + j * grid_size + half_grid_size
                     prob = pos.TRANS_PROB[pos.convert_coord2D_to_coord1D(i, j)]
-                    canvas.create_text(x, y, text=f"{prob:.1f}", fill=text_color, font=font)
+                    canvas.create_text(x, y, text=f"{prob * 100.0:.0f}%", fill=text_color, font=font)
 
     def __draw_moves(self, pos: Position):
         canvas = self.__canvas
