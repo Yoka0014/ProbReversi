@@ -5,11 +5,11 @@ from dqn_player import DQNPlayer
 
 #player_0, player_1 = RandomMover(), DQNPlayer("qnet_786.h5")
 #player_0, player_1 = MCPlayer(100), RandomMover()
-player_0, player_1 = HumanPlayer(), MCPlayer(100)
+player_0, player_1 = HumanPlayer(), RandomMover()
 #player_0, player_1 = MCPlayer(100), MCPlayer(100)
 
 
-size = 6
+size = 8
 t = 5
 prob = []
 for coord in range(size ** 2):
