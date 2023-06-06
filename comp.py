@@ -1,7 +1,7 @@
 from game import Game
 from myplayer import MyPlayer
 
-BOARD_SIZE = 6  # 盤面サイズ(大会は6と8で行う)
+BOARD_SIZE = 6  # 盤面サイズ(対戦は6と8で行う)
 NUM_GAME = 10   # 対戦回数
 
 t = 5
