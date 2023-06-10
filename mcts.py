@@ -48,13 +48,6 @@ class Node:
         """
         self.child_nodes = [None] * len(self.moves)
 
-    def create_move(self, pos: Position, idx):
-        """
-        idx番目の成功着手と失敗着手を生成する.
-        """
-        coord = self.move_coords[idx]
-        self.moves[idx] = (pos.get_player_move(coord), pos.get_opponent_move(coord))
-
     def expand(self, pos: Position):
         """
         合法手の数だけ子ノードを展開(厳密には子ノードに至る辺を展開).
@@ -99,6 +92,7 @@ class UCTConfig:
     def __init__(self):
         self.expansion_threshold = 40   # ノードの展開閾値
         self.ucb_factor = 1.41421356    # UCB1のバイアス項の強さを決める定数(デフォルト値は理論値であるsqrt(2))
+        self.reuse_subtree = True       # 可能なら前回の探索結果を再利用する
 
 
 class UCT:
@@ -136,10 +130,34 @@ class UCT:
         return self.__playout_count / self.search_ellapsed_ms
 
     def set_root_pos(self, pos: Position):
-        self.__root_pos = pos
-        gc.collect()
+        prev_root_pos = self.__root_pos
+        self.__root_pos = pos.copy()
+        
+        # 前回の探索結果を再利用できるか確認.
+        if self.__root is not None:
+            for i in range(self.__root.num_child):
+                move = self.__root.moves[i]
+
+                for move_idx in range(2):
+                    m = move[move_idx]
+                    if m is None:
+                        continue
+
+                    next_pos = prev_root_pos.copy()
+                    if m.coord != next_pos.PASS_COORD:
+                        next_pos.do_move(move[move_idx])
+                    else:
+                        next_pos.do_pass()
+
+                    if next_pos == pos and self.__root.child_nodes[i][move_idx] is not None: # 再利用可能
+                        self.__root = self.__root.child_nodes[i][move_idx]
+                        self.__init_root_child_nodes()
+                        gc.collect()
+                        return
+
         self.__root = Node()
         self.__init_root_child_nodes()
+        gc.collect()
 
     def search(self, num_playout: int) -> SearchResult:
         root_pos = self.__root_pos
@@ -163,7 +181,7 @@ class UCT:
             eval.action_value = root.child_value_sums[i] / root.child_visit_counts[i]
             result.move_values.append(eval)
         return result
-    
+
     def __init_root_child_nodes(self):
         """
         ルートノード直下の子ノードを初期化する.
@@ -177,8 +195,8 @@ class UCT:
             root.init_child_nodes()
 
         for i in range(root.num_child):
-            if root.child_visit_counts[i] == 0:
-                root.create_move(pos, i)
+            coord = root.move_coords[i]
+            root.moves[i] = (pos.get_player_move(coord), pos.get_opponent_move(coord))
 
             if root.child_nodes[i] is None:
                 root.child_nodes[i] = [Node(), Node()]
@@ -207,24 +225,24 @@ class UCT:
                 else:
                     value = 1.0 if score > 0 else 0.0
                 return 1.0 - value
-            
+
             # パスノードはさらに1手先を読んで評価
             if node.child_nodes is None:
                 node.init_child_nodes()
                 node.child_nodes[0] = [Node(), None]
-            
+
             pos.do_pass()
             value = self.__visit_node(pos, node.child_nodes[0][0], after_pass=True)
 
             self.__update_stats(node, 0, value)
             return 1.0 - value
-        
+
         if node.visit_count <= self.__EXPANSION_THRESHOLD:
             value = self.__playout(pos)
             node.visit_count += 1
             node.value_sum += value
             return 1.0 - value
-        
+
         if node.child_nodes is None:
             node.init_child_nodes()
 
@@ -233,7 +251,7 @@ class UCT:
         if node.child_visit_counts[child_idx] == 0:
             node.moves[child_idx] = [None, None]
             node.child_nodes[child_idx] = [None, None]
-            
+
         child_node = node.child_nodes[child_idx]
         move = node.moves[child_idx]
         if random.random() < pos.TRANS_PROB[move_coord]:
@@ -253,7 +271,6 @@ class UCT:
         value = self.__visit_node(pos, child_node[move_idx])
         self.__update_stats(node, child_idx, value)
         return 1.0 - value
-
 
     def __select_root_child_node(self) -> np.intp:
         """
