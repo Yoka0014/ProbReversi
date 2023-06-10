@@ -26,7 +26,7 @@ class DQNConfig:
         self.target_net_update_interval = 5    # target networkを更新する間隔. (target_net_update_interval * batch_size)回のエピソード終了毎にtarget networkが更新される.
         self.train_steps = 10000     # NNのパラメータを何回更新するか.
         self.warmup_size = self.batch_size * 100    # ReplayBufferに何エピソード溜まったら学習を開始するか.
-        self.replay_buffer_capacity = 1000000 // (self.board_size ** 2 - 4)     # Replay bufferのサイズ.
+        self.replay_buffer_capacity = 30000     # Replay bufferのサイズ.
 
         self.discount_rate = 0.99   # 割引率
         self.epsilon_start = 0.9    # epsilonの初期値

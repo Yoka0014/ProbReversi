@@ -8,6 +8,7 @@ from typing import Callable
 import os
 import random
 import time
+import threading
 
 from prob_reversi import DiscColor, Player, Move, Position
 from gui import GameGUI

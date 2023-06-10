@@ -19,7 +19,7 @@ class Node:
         # 子ノード関連の情報.
         self.child_visit_counts: np.ndarray = None
         self.child_value_sums: np.ndarray = None
-        self.child_nodes: list[tuple[Node, Node]] = None     # list[[成功した局面のノード, 失敗した局面のノード]]
+        self.child_nodes: list[list[Node, Node]] = None     # list[[成功した局面のノード, 失敗した局面のノード]]
 
         Node.__object_count += 1
 
@@ -46,7 +46,7 @@ class Node:
         """
         子ノードオブジェクトのリストを初期化する.
         """
-        [None] * len(self.moves)
+        self.child_nodes = [None] * len(self.moves)
 
     def create_move(self, pos: Position, idx):
         """
@@ -54,13 +54,6 @@ class Node:
         """
         coord = self.move_coords[idx]
         self.moves[idx] = (pos.get_player_move(coord), pos.get_opponent_move(coord))
-
-    def create_child_node(self, idx):
-        """
-        idx番目の子ノードを実体化する.
-        """
-        child = self.child_nodes[idx] = (Node(), Node())
-        return child
 
     def expand(self, pos: Position):
         """
@@ -77,6 +70,7 @@ class Node:
             self.child_visit_counts = np.zeros(1, dtype=np.uint32)
             self.child_value_sums = np.zeros(1, dtype=np.float32)
             self.move_coords = [pos.PASS_COORD]
+            self.moves = [None]
 
 
 class MoveEval:
@@ -97,15 +91,14 @@ class SearchResult:
     """
 
     def __init__(self):
-        root_value: MoveEval    # 初期局面の価値
-        move_values: list[MoveEval]     # 候補手の価値
+        self.root_value: MoveEval = MoveEval()    # 初期局面の価値
+        self.move_values: list[MoveEval] = []     # 候補手の価値
 
 
 class UCTConfig:
     def __init__(self):
         self.expansion_threshold = 40   # ノードの展開閾値
         self.ucb_factor = 1.41421356    # UCB1のバイアス項の強さを決める定数(デフォルト値は理論値であるsqrt(2))
-        self.node_num_limit = 10 ** 6   # ノードオブジェクトの上限値
 
 
 class UCT:
@@ -119,7 +112,6 @@ class UCT:
     def __init__(self, config: UCTConfig):
         self.__EXPANSION_THRESHOLD = config.expansion_threshold
         self.__UCB_FACTOR = config.ucb_factor
-        self.__NODE_NUM_LIMIT = config.node_num_limit
 
         self.__playout_count = 0
         self.__search_start_ms = 0
@@ -149,6 +141,29 @@ class UCT:
         self.__root = Node()
         self.__init_root_child_nodes()
 
+    def search(self, num_playout: int) -> SearchResult:
+        root_pos = self.__root_pos
+        pos = Position(root_pos.SIZE, root_pos.TRANS_PROB)
+        for _ in range(num_playout):
+            root_pos.copy_to(pos, False)
+            self.__visit_root_node(pos)
+        return self.__collect_search_result()
+
+    def __collect_search_result(self) -> SearchResult:
+        root = self.__root
+        result = SearchResult()
+        result.root_value.playout_count = root.visit_count
+        result.root_value.effort = 1.0
+        result.root_value.action_value = root.value
+        for i in range(root.num_child):
+            eval = MoveEval()
+            eval.coord = root.move_coords[i]
+            eval.playout_count = root.child_visit_counts[i]
+            eval.effort = eval.playout_count / root.visit_count
+            eval.action_value = root.child_value_sums[i] / root.child_visit_counts[i]
+            result.move_values.append(eval)
+        return result
+    
     def __init_root_child_nodes(self):
         """
         ルートノード直下の子ノードを初期化する.
@@ -166,28 +181,24 @@ class UCT:
                 root.create_move(pos, i)
 
             if root.child_nodes[i] is None:
-                root.create_child_node(i)
+                root.child_nodes[i] = [Node(), Node()]
+            elif root.child_nodes[i][0] is None:
+                root.child_nodes[i][0] = Node()
+            elif root.child_nodes[i][1] is None:
+                root.child_nodes[i][1] = Node()
 
     def __visit_root_node(self, pos: Position):
         node = self.__root
         child_idx = self.__select_root_child_node()
-        if node.visit_count <= self.__EXPANSION_THRESHOLD:
-            if node.child_visit_counts[child_idx]:
-                move_coord = node.move_coords[child_idx]
-                moves = node.moves[child_idx] = (pos.get_player_move(move_coord), pos.get_opponent_move(move_coord))
-
-            pos.do_move(moves[0 if random.random() < pos.TRANS_PROB[move_coord] else 1])
-            self.__update_stats(node, child_idx, -self.__playout(pos))
-        else:
-            move_idx = 0 if random.random() < pos.TRANS_PROB[move_coord] else 1
-            pos.do_move(node.moves[move_idx])
-            self.__update_stats(node, child_idx, -self.__visit_node(pos, node.child_nodes[child_idx][move_idx]))
+        move_coord = node.move_coords[child_idx]
+        move_idx = 0 if random.random() < pos.TRANS_PROB[move_coord] else 1
+        pos.do_move(node.moves[child_idx][move_idx])
+        self.__update_stats(node, child_idx, self.__visit_node(pos, node.child_nodes[child_idx][move_idx]))
 
     def __visit_node(self, pos: Position, node: Node, after_pass=False):
         if not node.is_expanded:
             node.expand(pos)
 
-        value = 0.0
         if node.move_coords[0] == pos.PASS_COORD:
             if after_pass:  # パスが2連続 -> 終局
                 score = pos.get_score()
@@ -195,37 +206,52 @@ class UCT:
                     value = 0.5
                 else:
                     value = 1.0 if score > 0 else 0.0
-            else:   # パスノードはさらに1手先を読んで評価
-                if node.child_nodes is None:
-                    node.init_child_nodes()
-                    node.create_child_node(0)
-                
-                pos.do_pass()
-                value = self.__visit_node(pos, node.child_nodes[0][0], after_pass=True)
+                return 1.0 - value
+            
+            # パスノードはさらに1手先を読んで評価
+            if node.child_nodes is None:
+                node.init_child_nodes()
+                node.child_nodes[0] = [Node(), None]
+            
+            pos.do_pass()
+            value = self.__visit_node(pos, node.child_nodes[0][0], after_pass=True)
 
             self.__update_stats(node, 0, value)
             return 1.0 - value
         
-        child_idx = self.__select_child_node(node)
         if node.visit_count <= self.__EXPANSION_THRESHOLD:
-            if node.child_visit_counts[child_idx] == 0:
-                move_coord = node.move_coords[child_idx]
-                moves = node.moves[child_idx] = (pos.get_player_move(move_coord), pos.get_opponent_move(move_coord))
-
-            pos.do_move(moves[0 if random.random() < pos.TRANS_PROB[move_coord] else 1])
-            value = 1.0 - self.__playout(pos)
-            self.__update_stats(node, child_idx, value)
+            value = self.__playout(pos)
+            node.visit_count += 1
+            node.value_sum += value
             return 1.0 - value
         
         if node.child_nodes is None:
             node.init_child_nodes()
 
-        if node.child_nodes[child_idx] is None:
-            node.create_child_node(child_idx)
+        child_idx = self.__select_child_node(node)
+        move_coord = node.move_coords[child_idx]
+        if node.child_visit_counts[child_idx] == 0:
+            node.moves[child_idx] = [None, None]
+            node.child_nodes[child_idx] = [None, None]
+            
+        child_node = node.child_nodes[child_idx]
+        move = node.moves[child_idx]
+        if random.random() < pos.TRANS_PROB[move_coord]:
+            move_idx = 0
+            if move[0] is None:
+                move[0] = pos.get_player_move(move_coord)
+        else:
+            move_idx = 1
+            if move[1] is None:
+                move[1] = pos.get_opponent_move(move_coord)
 
-        move_idx = 0 if random.random() < pos.TRANS_PROB[move_coord] else 1
-        pos.do_move(node.moves[move_idx])
-        self.__update_stats(node, child_idx, self.__visit_node(pos, node.child_nodes[child_idx][move_idx]))
+        pos.do_move(move[move_idx])
+
+        if child_node[move_idx] is None:
+            child_node[move_idx] = Node()
+
+        value = self.__visit_node(pos, child_node[move_idx])
+        self.__update_stats(node, child_idx, value)
         return 1.0 - value
 
 
@@ -236,6 +262,7 @@ class UCT:
         parent = self.__root
         if parent.visit_count == 0:
             default_u = 0.0
+            log_sum = 0.0
         else:
             log_sum = math.log(parent.visit_count)
             default_u = math.sqrt(log_sum)
@@ -245,7 +272,7 @@ class UCT:
                       out=np.full(parent.num_child, self.__ROOT_FPU, np.float32), where=parent.child_visit_counts != 0)
 
         # バイアス項の計算
-        u = np.divide(log_sum / parent.child_visit_counts,
+        u = np.divide(log_sum, parent.child_visit_counts,
                       out=np.full(parent.num_child, default_u, np.float32), where=parent.child_visit_counts != 0)
         np.sqrt(u, out=u)
 
@@ -269,7 +296,7 @@ class UCT:
                       out=np.full(parent.num_child, fpu, np.float32), where=parent.child_visit_counts != 0)
 
         # バイアス項の計算
-        u = np.divide(log_sum / parent.child_visit_counts,
+        u = np.divide(log_sum, parent.child_visit_counts,
                       out=np.full(parent.num_child, default_u, np.float32), where=parent.child_visit_counts != 0)
         np.sqrt(u, out=u)
 
@@ -289,6 +316,7 @@ class UCT:
             move = pos.get_move(coord)
             pos.do_move(move)
 
+        self.__playout_count += 1
         score = pos.get_score_from(player)
         if score == 0:
             return 0.5
