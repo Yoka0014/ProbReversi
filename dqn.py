@@ -21,7 +21,7 @@ NNに入力するデータのチャンネル数.
 channel = 1: 現在の手番の石の配置(2値画像)
 channel = 2: 相手の石の配置(2値画像)
 """
-NN_NUM_CHANNEL = 3
+NN_NUM_CHANNEL = 2
 
 
 def position_to_input(pos: Position, dest: np.ndarray = None) -> np.ndarray:

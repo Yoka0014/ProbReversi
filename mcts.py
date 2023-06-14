@@ -90,8 +90,8 @@ class SearchResult:
 
 class UCTConfig:
     def __init__(self):
-        self.expansion_threshold = 40   # ノードの展開閾値
-        self.ucb_factor = 1.41421356    # UCB1のバイアス項の強さを決める定数(デフォルト値は理論値であるsqrt(2))
+        self.expansion_threshold = 20   # ノードの展開閾値
+        self.ucb_factor = math.sqrt(2.0)    # UCB1のバイアス項の強さを決める定数(デフォルト値は理論値であるsqrt(2))
         self.reuse_subtree = True       # 可能なら前回の探索結果を再利用する
 
 
@@ -99,8 +99,17 @@ class UCT:
     """
     Upper Confidence Bound applied to trees
     """
-    # ルートノード直下のノードのFPU(First Play Urgency)
-    # FPUは未訪問ノードの行動価値の初期値. ルートノード直下以外の子ノードは, 親ノードの価値をFPUとして用いる.
+
+    """
+    ルートノード直下のノードのFPU(First Play Urgency)
+    FPUは未訪問ノードの行動価値. ルートノード直下以外の子ノードは, 親ノードの価値をFPUとして用いる.
+
+    Note:
+        ルートノード直下の未訪問ノードは全て勝ちと見做す. そうすれば, 1手先の全ての子ノードは初期に少なくとも1回はプレイアウトされる.
+
+        ルートノード直下以外の未訪問ノードは, 親ノードの価値で初期化する. 
+        そうすれば, 親ノードよりも価値の高い子ノードが見つかれば, しばらくそのノードが選ばれ続ける.
+    """
     __ROOT_FPU = 1.0
 
     def __init__(self, config: UCTConfig):
@@ -132,7 +141,7 @@ class UCT:
     def set_root_pos(self, pos: Position):
         prev_root_pos = self.__root_pos
         self.__root_pos = pos.copy()
-        
+
         # 前回の探索結果を再利用できるか確認.
         if self.__root is not None:
             for i in range(self.__root.num_child):
@@ -149,7 +158,7 @@ class UCT:
                     else:
                         next_pos.do_pass()
 
-                    if next_pos == pos and self.__root.child_nodes[i][move_idx] is not None: # 再利用可能
+                    if next_pos == pos and self.__root.child_nodes[i][move_idx] is not None:  # 再利用可能
                         self.__root = self.__root.child_nodes[i][move_idx]
                         self.__init_root_child_nodes()
                         gc.collect()
@@ -278,8 +287,7 @@ class UCT:
         """
         parent = self.__root
         if parent.visit_count == 0:
-            default_u = 0.0
-            log_sum = 0.0
+            log_sum = default_u = 0.0
         else:
             log_sum = math.log(parent.visit_count)
             default_u = math.sqrt(log_sum)

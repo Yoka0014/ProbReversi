@@ -20,6 +20,7 @@ class DQNPlayer(IPlayer):
         if len(moves) == 0:
             return pos.PASS_COORD
         q = self.__qnet.predict_from_position(pos)[0]
+        print(f"win_rate: {(max(q) + 1.0) * 50.0:.2f}")
         return max(moves, key=lambda c: q[c])
     
     def do_move(self, move: Move):

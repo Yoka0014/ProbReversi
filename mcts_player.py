@@ -18,7 +18,9 @@ class MCTSPlayer(IPlayer):
     
     def gen_move(self) -> int:
         result = self.__uct.search(self.__num_playout)
-        return max(result.move_values, key=lambda e: e.playout_count).coord
+        best = max(result.move_values, key=lambda e: e.playout_count)
+        print(f"win_rate: {best.action_value * 100.0:.2f}%")
+        return best.coord
     
     def do_move(self, move: Move):
         self.__pos.do_move(move)

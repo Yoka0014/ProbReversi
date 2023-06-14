@@ -234,6 +234,16 @@ class Position:
             coord = (opponent & -opponent).bit_length() - 1  
             yield coord
             opponent &= (opponent - 1)
+
+    def get_empty_square_coords(self):
+        """
+        空きマスの座標を取得する.
+        """
+        empties = ~(self.__player | self.__opponent) & self.__VALID_BITS_MASK
+        while empties:
+            coord = (empties & -empties).bit_length() - 1  
+            yield coord
+            empties &= (empties - 1)
     
     def parse_coord(self, coord_str: str) -> int:
         """
