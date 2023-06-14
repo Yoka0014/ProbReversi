@@ -202,8 +202,10 @@ class DualNetwork:
         masks = tf.one_hot(move_coords, self.__BOARD_SIZE ** 2 + 1)
         with tf.GradientTape() as tape:
             p, v = model(x)
+            v_loss = MSE(rewards, v)
             g = tf.multiply((rewards - tf.stop_gradient(v)), masks)
-            loss = -tf.reduce_mean(tf.math.log(p + EPSILON) * g) + MSE(rewards, v)
+            p_loss = -tf.reduce_sum(tf.math.log(p + EPSILON) * g) / x.shape[0]
+            loss = p_loss + v_loss
 
         grads = tape.gradient(loss, model.trainable_weights)
         model.optimizer.apply_gradients(zip(grads, model.trainable_weights))

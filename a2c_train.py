@@ -21,7 +21,7 @@ class A2CConfig:
 
         self.nn_optimizer = tf.optimizers.Adam(learning_rate=0.001)    # DualNetworkのオプティマイザ
 
-        self.batch_size = 32   # DualNetworkに入力するバッチサイズ.
+        self.batch_size = 256   # DualNetworkに入力するバッチサイズ.
         self.train_steps = 10000     # NNのパラメータを何回更新するか.
 
         self.model_path = "dualnet_{0}.h5"
