@@ -7,7 +7,7 @@ import random
 import numpy as np
 import tensorflow as tf
 
-from dqn import NN_NUM_CHANNEL, QNetwork, Episode, ReplayBuffer, position_to_input
+from dueling_dqn import NN_NUM_CHANNEL, QNetwork, Episode, ReplayBuffer, position_to_input
 from prob_reversi import Position, Move
 
 
@@ -19,13 +19,15 @@ class DQNConfig:
         self.board_size = 6     # 盤面サイズ
         self.trans_prob = [1.0] * self.board_size ** 2
         
-        self.nn_optimizer = tf.optimizers.Adam(lr=0.001)    # QNetworkのオプティマイザ
+        self.nn_optimizer = tf.optimizers.Adam(learning_rate=1.0e-5)    # QNetworkのオプティマイザ
         self.nn_loss_function = tf.losses.Huber()   # QNetworkの損失関数
+        self.nn_num_kernel = 128
+        self.nn_num_res_block = 2   # ResBlockの数
 
         self.batch_size = 256   # QNetworkに入力するバッチサイズ.
         self.target_net_update_interval = 5    # target networkを更新する間隔. (target_net_update_interval * batch_size)回のエピソード終了毎にtarget networkが更新される.
-        self.train_steps = 10000     # NNのパラメータを何回更新するか.
-        self.warmup_size = self.batch_size * 1    # ReplayBufferに何エピソード溜まったら学習を開始するか.
+        self.train_steps = 100000     # NNのパラメータを何回更新するか.
+        self.warmup_size = self.batch_size * 100    # ReplayBufferに何エピソード溜まったら学習を開始するか.
         self.replay_buffer_capacity = 30000     # Replay bufferのサイズ.
 
         self.discount_rate = 0.99   # 割引率
@@ -58,9 +60,15 @@ class SharedStorage:
 
     train_count: int
         今までのQNetworkのパラメータ更新回数
+
+    save_count: int
+        NNの保存回数
+
+    loss_histroy: list[float]
+        損失の履歴
     """
     def __init__(self, config: DQNConfig):
-        self.qnet = QNetwork(config.board_size, optimizer=config.nn_optimizer, loss=config.nn_loss_function)
+        self.qnet = QNetwork(config.board_size, num_kernel=config.nn_num_kernel, num_res_block=config.nn_num_res_block, optimizer=config.nn_optimizer, loss=config.nn_loss_function)
         self.target_net = QNetwork(src=self.qnet)
         self.replay_buffer = ReplayBuffer(config.replay_buffer_capacity, config.board_size)
 
@@ -84,6 +92,11 @@ def epsilon(config: DQNConfig, step_count: int):
         
     """
     return config.epsilon_end + (config.epsilon_start - config.epsilon_end) * math.exp(-step_count / config.epsilon_decay)
+
+def game_score_to_reward(score: int):
+    if score == 0:
+        return 0
+    return 1 if score > 0 else -1
 
 
 def exec_episodes(config: DQNConfig, shared: SharedStorage):
@@ -115,7 +128,7 @@ def exec_episodes(config: DQNConfig, shared: SharedStorage):
         if terminated_all:
             break
 
-        q_batch = qnet.predict(batch, batch_size=batch_size)
+        q_batch = qnet.predict_q(batch)
         for i, (pos, q, episode) in enumerate(zip(positions, q_batch, episodes)):
             if pass_counts[i] == 2: # 終局している局面は無視.
                 continue
@@ -131,6 +144,10 @@ def exec_episodes(config: DQNConfig, shared: SharedStorage):
                 pass_counts[i] += 1
                 pos.do_pass()
                 episode.add_move(Move(coord=coord))
+
+                if pass_counts[i] == 2:
+                    episode.set_terminal_reward(pos.side_to_move, game_score_to_reward(pos.get_score()))
+                    
                 continue
 
             pass_counts[i] = 0
@@ -152,33 +169,38 @@ def train(config: DQNConfig, shared: SharedStorage) -> bool:
     qnet, target_net, replay_buffer = shared.qnet, shared.target_net, shared.replay_buffer
 
     batch = replay_buffer.sample_batch(batch_size)
-    q_x = np.empty((batch_size, board_size, board_size, NN_NUM_CHANNEL)).astype(np.float32)  # QNetworkへの入力を格納するバッチ.
-    target_x = np.empty((batch_size, board_size, board_size, NN_NUM_CHANNEL)).astype(np.float32)     # ターゲットネットワークへの入力を格納するバッチ.
+    x = np.empty((batch_size, board_size, board_size, NN_NUM_CHANNEL)).astype(np.float32) 
+    x_next = np.empty((batch_size, board_size, board_size, NN_NUM_CHANNEL)).astype(np.float32)
+    td_targets = np.empty((batch_size, 1))
+    terminal_rewards = np.empty((batch_size, 1))
+    moves: list[Move] = []
 
-    for i, (pos, _, next_pos, _) in enumerate(batch):
-        """
-        バッチ内の局面をNNへの入力データに変換.
-        """
-        position_to_input(pos, q_x[i])
-        position_to_input(next_pos, target_x[i])
+    for i, (pos, _, next_pos, _, _) in enumerate(batch):
+        position_to_input(pos, x[i])
+        position_to_input(next_pos, x_next[i])
     
-    # ターゲットネットワークの出力からTDターゲットを作成.
-    target_out = target_net.predict(target_x)
-    td_targets = np.zeros((batch_size, 1))
-    for i, (_, move, next_pos, reward) in enumerate(batch):
-        if reward is None:
-            moves = list(next_pos.get_next_moves())
-            if len(moves) != 0:
-                td_targets[i][0] = target_out[i][max(moves, key=lambda c: target_out[i][c])]
+    actor_q = qnet.predict_q(x_next)
+    target_q = target_net.predict_q(x_next)
+    for i, (_, move, next_pos, terminal_reward, next_is_terminal) in enumerate(batch):
+        aq = actor_q[i]
+        tq = target_q[i]
+        if not next_is_terminal:
+            next_moves = list(next_pos.get_next_moves())
+            if len(next_moves) != 0:
+                td_targets[i] = tq[max(next_moves, key=lambda c: aq[c])]
             else:
-                td_targets[i][0] = target_out[i][next_pos.PASS_COORD]
+                td_targets[i] = tq[next_pos.PASS_COORD]
             
             # 相手の手番から見た行動価値を計算しているので符号の反転が必要
-            td_targets[i][0] = -config.discount_rate * td_targets[i][0]
+            td_targets[i] = -config.discount_rate * td_targets[i]
         else:
-            td_targets[i][0] = -reward
+            td_targets[i] = terminal_reward
+        
+        terminal_rewards[i] = terminal_reward
+        moves.append(move)
+        
 
-    loss = qnet.train(q_x, td_targets, list(map(lambda b: b[1], batch))).numpy().item()
+    loss = qnet.train(x, moves, td_targets, terminal_rewards).numpy().item()
     shared.loss_histroy.append(loss)
     shared.train_count += 1
 
@@ -194,7 +216,6 @@ def main(config: DQNConfig):
         if shared.train_count != 0 and shared.episode_count % config.target_net_update_interval == 0:
             # target netの更新
             shared.target_net = QNetwork(src=shared.qnet)
-            tf.keras.backend.clear_session()    # 定期的にこの関数を呼ばないと重くなる
             print("Info: Target-Network has been updated.")
 
         if shared.train_count != 0 and shared.episode_count % config.save_network_interval == 0:
@@ -204,8 +225,14 @@ def main(config: DQNConfig):
             shared.save_count += 1
             print(f"Info: Q-Network has been saved at \"{path}\"")
 
+            with open(config.loss_path, "w") as file:
+                file.write(f"{str(shared.loss_histroy)}\n")
+            print(f"Info: History of losses has been saved at \"{config.loss_path}\"")
+
         if len(shared.replay_buffer) > config.warmup_size:  # 十分なエピソードが溜まっていないときは学習しない
             train(config, shared)
+        
+        tf.keras.backend.clear_session()    
 
     shared.qnet.save(config.model_path.format("final"))
 

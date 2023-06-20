@@ -7,12 +7,15 @@ from collections import deque
 
 import numpy as np
 import tensorflow as tf
-from keras.layers import Conv2D, Flatten, Dense, BatchNormalization, Activation
-from keras.models import Sequential, load_model, clone_model
+from keras.layers import Input, Conv2D, Flatten, Dense, BatchNormalization, Add
+from keras.models import Model, load_model, clone_model
 from keras.optimizers import Adam
 from keras.losses import Huber
+from keras.activations import relu
+from keras.initializers.initializers_v2 import HeNormal, GlorotNormal 
+from keras.regularizers import L2
 
-from prob_reversi import Position, Move
+from prob_reversi import Position, Move, DiscColor
 
 
 """
@@ -66,8 +69,11 @@ class QNetwork:
     各マス目の行動価値を board_size * board_size + 1 次元のベクトルとして出力するNN．
     """
 
-    def __init__(self, board_size=6, kernel_num=128, layer_num=5, 
-                 model_path: str = None, src=None, copy_optimizer=False, copy_loss=False, optimizer=Adam(lr=0.001), loss=Huber()):
+    # L2正則化の定数
+    L2 = 5.0e-4
+
+    def __init__(self, board_size=6, num_kernel=192, num_res_block=10,
+                 model_path: str = None, src=None, optimizer=Adam(lr=0.001), loss=Huber()):
         """
         コンストラクタ
 
@@ -77,10 +83,10 @@ class QNetwork:
             盤面のサイズ(デフォルトは6)
 
         kernel_num: int
-            カーネル(フィルター)数(デフォルトは128)
+            カーネル(フィルター)数(デフォルトは192)
 
-        layer_num: int
-            NNの層数(デフォルトは5)
+        num_res_block: int
+            ResBlockの数(デフォルトは10)
 
         model_path: str
             ファイルからパラメータをロードする場合のファイルパス(Noneなら無視される)
@@ -88,19 +94,13 @@ class QNetwork:
         src: QNetwork
             別のQNetworkオブジェクトからパラメータをコピーする際のコピー元(Noneなら無視される)
 
-        copy_optimizer: bool
-            srcからオプティマイザもコピーするかどうか
-
-        copy_loss: bool
-            srcから損失関数もコピーするかどうか
-
         optimizer: tf.Optimizer
             学習の際に用いるオプティマイザ(デフォルトはAdam)
 
         loss: tf.Loss
             学習の際に用いる損失関数(デフォルトはHuber関数)
         """
-        if model_path is not None:  
+        if model_path is not None:
             # ファイルが指定されていれば，そこからモデルを読む．
             self.__model = load_model(model_path)
         elif src is not None and type(src) is QNetwork:
@@ -108,16 +108,12 @@ class QNetwork:
             self.__BOARD_SIZE = src.__model.input_shape[0]
             self.__model = clone_model(src.__model)
             self.__model.set_weights(src.__model.get_weights())
-            if copy_optimizer:
-                optimizer = src.__model.optimizer
-            if copy_loss:
-                loss = src.__model.loss
         else:
             # 引数で指定された盤面サイズとカーネル数に基づいてモデルを構築する.
             self.__BOARD_SIZE = board_size
-            self.__KERNEL_NUM = kernel_num
-            self.__LAYER_NUM = layer_num
-            self.__model = Sequential()
+            self.__NUM_KERNEL = num_kernel
+            self.__NUM_RES_BLOCK = num_res_block
+            self.__model: Model = None
             self.__init_model()
 
         # 引数で指定されたオプティマイザと損失関数をモデルに登録.
@@ -130,19 +126,42 @@ class QNetwork:
         """
         モデルを初期化する．
         """
-        size = self.__BOARD_SIZE
-        k = self.__KERNEL_NUM
-        self.__model = Sequential()
-        model = self.__model
+        board_size = self.__BOARD_SIZE
 
-        for _ in range(self.__LAYER_NUM - 1):
-            # (層数 - 1)回だけ 畳み込み->バッチ正規化->ReLU関数 の流れを繰り返す(最後の1層は出力層)
-            model.add(Conv2D(k, (3, 3), padding="same", input_shape=(size, size, NN_NUM_CHANNEL), use_bias=False))
-            model.add(BatchNormalization())
-            model.add(Activation("relu"))
+        def conv(num_kernel=self.__NUM_KERNEL, kernel_size=3):
+            return Conv2D(num_kernel, kernel_size, padding='same', use_bias=False, kernel_initializer=HeNormal(), kernel_regularizer=L2(QNetwork.L2))
 
-        model.add(Flatten())
-        model.add(Dense(size ** 2 + 1, activation="tanh"))
+        input = Input(shape=(board_size, board_size, NN_NUM_CHANNEL))
+        x = conv()(input)
+        x = BatchNormalization()(x)
+        x = relu(x)
+
+        for _ in range(self.__NUM_RES_BLOCK):
+            sc = x
+            x = conv()(x)
+            x = BatchNormalization()(x)
+            x = relu(x)
+            x = conv()(x)
+            x = BatchNormalization()(x)
+            x = Add()([x, sc])
+            x = relu(x)
+
+        a = conv(2, 1)(x)
+        a = BatchNormalization()(a)
+        a = relu(a)
+        a = Flatten()(a)
+        advantages = Dense(board_size ** 2 + 1, kernel_initializer=GlorotNormal(), kernel_regularizer=L2(QNetwork.L2))(a)
+
+        v = conv(1, 1)(x)
+        v = BatchNormalization()(v)
+        v = relu(v)
+        v = Dense(256, kernel_initializer=HeNormal(), kernel_regularizer=L2(QNetwork.L2))(v)
+        v = relu(v)
+        v = Flatten()(v)
+        value = Dense(1, kernel_initializer=GlorotNormal(), kernel_regularizer=L2(QNetwork.L2))(v)
+
+        self.__model = Model(inputs=input, outputs=[advantages, value])
+
 
     def save(self, path: str):
         """
@@ -165,86 +184,47 @@ class QNetwork:
         """
         return QNetwork(src=self)
 
-    def predict(self, x: np.ndarray, batch_size=32) -> np.ndarray:
-        """
-        QNetworkへの入力のバッチを受け取って，その出力を返す．
+    def predict_raw(self, x: np.ndarray) -> np.ndarray:
+        return self.__model.predict(x, verbose=0)
+    
+    def predict_q(self, x: np.ndarray) -> np.ndarray:
+        a, v = self.predict_raw(x)
+        return tf.nn.tanh(a + v - np.mean(a, axis=1, keepdims=True)).numpy()
 
-        この関数では，(batch_size, board_size, board_size, NUM_NN_CHANNEL)のテンソルをNNに入力して，
-        (batch_size, board_size ** 2 + 1)の行列として出力を得る.
-
-        Parameters
-        ----------
-            x: np.ndarray[shape=(batch_size, board_size, board_size, NN_NUM_CHANNEL)]
-                QNetworkへの入力のバッチ
-
-        Returns
-        -------
-        np.ndarray[shape=(batch_size, board_size ** 2 + 1)]
-            QNetworkの出力のバッチ
-        """
-        return self.__model.predict(x, batch_size=batch_size, verbose=0)
-
-    def predict_from_position(self, pos: Position) -> np.ndarray:
-        """
-        局面を受け取って，その盤面における各マスの行動価値を出力する.
-
-        Parameters
-        ----------
-        pos: Position
-            各着手の行動価値を算出する局面
-
-        Returns
-        -------
-        np.ndarray[shape=(1, board_size ** 2 + 1)]
-            各マス目とパスの行動価値
-        """
+    def predict_q_from_position(self, pos: Position) -> np.ndarray:
         size = pos.SIZE
         x = np.zeros(shape=(1, size, size, NN_NUM_CHANNEL))
         position_to_input(pos, x[0])
-        return self.predict(x, batch_size=1)
+        return self.predict_q(x)
+    
+    def predict_vq_from_position(self, pos: Position) -> np.ndarray:
+        size = pos.SIZE
+        x = np.zeros(shape=(1, size, size, NN_NUM_CHANNEL))
+        position_to_input(pos, x[0])
+        a, v = self.predict_raw(x)
+        return tf.nn.tanh(v - np.mean(a, axis=1, keepdims=True)).numpy(), tf.nn.tanh(a + v - np.mean(a, axis=1, keepdims=True)).numpy()
 
-    def train(self, x: np.ndarray, td_targets: np.ndarray, moves: list[Move]) -> float:
-        """
-        与えられたバッチから勾配計算を1回行って重みを更新する.
-
-        Parameters
-        ----------
-        x: np.ndarray[shape=(batch_size, board_size, board_size, NN_NUM_CHANNEL)]
-            QNetworkへの入力のバッチ
-
-        td_targets: np.ndarray[shape=(batch_size, 1)]
-            TDターゲットのバッチ
-
-        moves: list[Move]
-            バッチ内の各盤面で行った着手
-
-        Returns
-        -------
-        loss: np.ndarray
-            損失関数の出力
-        """
+    def train(self, x: np.ndarray, moves: list[Move], td_targets: np.ndarray, terminal_rewards: np.ndarray) -> float:
         model = self.__model
 
         # 着手に対応する要素のみ1とするone-hotベクトルをmovesに格納されている着手の数だけ生成する.
         masks = tf.one_hot(list(map(lambda m: m.coord, moves)), self.__BOARD_SIZE ** 2 + 1)
         with tf.GradientTape() as tape:
-            # 損失の計算をGradientTapeに記録する.
+            advantages, value = model(x)
 
-            # NNで各着手の行動価値を出力.
-            q = model(x)
+            # NNが出力したアドバンテージのうち，実際に行った着手に対応するもののみを残す.
+            advantage = tf.reduce_sum(advantages * masks, axis=1, keepdims=True)
 
-            # NNが出力した行動価値のうち，実際に行った着手の行動価値のみを残して他を0にする.
-            # Note: tf.math.multiplyは要素ごとの積なので，masksと乗算することでqの不要な要素を0にできる.
-            q = tf.reduce_sum(masks * q, axis=1, keepdims=True)
+            q = tf.nn.tanh(advantage + value - tf.reduce_mean(advantages, axis=1, keepdims=True))
 
             # 損失を求める.
-            loss = model.loss(td_targets, q)
+            loss = (model.loss(td_targets, q) + model.loss(terminal_rewards, q)) * 0.5
 
-        # lossをNNのパラメータで微分して勾配ベクトルを求める.
         grads = tape.gradient(loss, model.trainable_weights)
-
-        # 求めた勾配ベクトルでNNのパラメータを更新する.
-        model.optimizer.apply_gradients(zip(grads, model.trainable_weights))
+        clipped_grads = []
+        for g in grads:
+            clipped_grads.append(tf.clip_by_value(g, -1.0, 1.0))
+        model.optimizer.apply_gradients(zip(clipped_grads, model.trainable_weights))
         return loss
 
 
@@ -264,6 +244,14 @@ class Episode:
         """
         self.__root_pos = root_pos.copy()  # 初期局面
         self.__history: list[Move] = []  # 着手履歴.
+        self.__terminal_reward_from_black: float = None
+
+    def set_terminal_reward(self, color: DiscColor, reward: float):
+        self.__terminal_reward_from_black = reward if color == DiscColor.BLACK else -reward
+
+    def get_terminal_reward(self, color: DiscColor):
+        reward = self.__terminal_reward_from_black
+        return reward if color == DiscColor.BLACK else -reward
 
     def len(self):
         return len(self.__history)
@@ -322,7 +310,7 @@ class ReplayBuffer:
         Returns
         -------
         batch: list[(Position, Move, Position, float)]
-            (局面，着手，着手後の局面，報酬)    
+            (局面，着手，着手後の局面，終端報酬(着手前の手番から見た), next_posが終局かどうか)    
             ただし，報酬は終局時にのみ得られる
         """
         episode_len_sum = float(sum(e.len() for e in self.__episodes))
@@ -330,23 +318,19 @@ class ReplayBuffer:
                                     p=[e.len() / episode_len_sum for e in self.__episodes])
 
         batch = []
-        for pos, move in map(lambda e: e.sample_state(), episodes):
-            pos: Position
-            move: Move
+        for episode in episodes:
+            episode: Episode
+            pos, move = episode.sample_state()
 
             next_pos = pos.copy()
-            reward = None
+            is_terminal = False
             if move.coord == pos.PASS_COORD:
                 next_pos.do_pass()
                 if next_pos.can_pass():  # パスを2連続でできるなら終局
-                    score = next_pos.get_score()
-                    if score == 0:
-                        reward = 0.0
-                    else:
-                        reward = 1.0 if score > 0 else -1.0
+                    is_terminal = True
             else:
                 next_pos.do_move(move)
 
-            batch.append((pos, move, next_pos, reward))
+            batch.append((pos, move, next_pos, episode.get_terminal_reward(pos.side_to_move), is_terminal))
 
         return batch
