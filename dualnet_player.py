@@ -1,14 +1,16 @@
 import numpy as np
+import tensorflow as tf
+from keras.models import Model, load_model
 
 from game import IPlayer
 from prob_reversi import Move, Position
-from dualnet import DualNetwork, NN_NUM_CHANNEL, position_to_input
+from dualnet import position_to_input, DN_NUM_CHANNEL
 
 class DualNetPlayer(IPlayer):
-    def __init__(self, model_path: str, greedy_value=False):
-        self.__pos = Position(4)
-        self.__dual_net = DualNetwork(model_path=model_path)
-        self.__greedy_value = greedy_value
+    def __init__(self, board_size, model_path: str, max_policy=True):
+        self.__pos = Position(board_size)
+        self.__dual_net: Model = load_model(model_path)
+        self.__max_policy = max_policy
     
     @property
     def name(self):
@@ -22,36 +24,21 @@ class DualNetPlayer(IPlayer):
         moves = list(pos.get_next_moves())
         if len(moves) == 0:
             return pos.PASS_COORD
-        p, v = self.__dual_net.predict_from_position(pos)
+        
+        x = np.empty(shape=(1, pos.SIZE, pos.SIZE, DN_NUM_CHANNEL))
+        position_to_input(pos, x[0])
+        p, v = self.__dual_net.predict(x, verbose=0)
 
-        if not self.__greedy_value:
-            print(f"win_rate: {(v[0][0] + 1.0) * 50.0:.2f}%")
-            return max(moves, key=lambda c: p[0][c])
+        if self.__max_policy:
+            move = max(moves, key=lambda x: p[0][x])
         else:
-            next_positions = [pos.copy() for i in range(len(moves) * 2)]
-            batch = np.empty(shape=(len(next_positions), pos.SIZE, pos.SIZE, NN_NUM_CHANNEL))
-            for i, move_coord in enumerate(moves):
-                idx = i * 2
-                p = next_positions[idx] 
-                p.do_move(p.get_player_move(move_coord))
-                position_to_input(p, batch[idx])
+            policy = p[0][moves].numpy().astype(np.float64)
+            policy /= np.sum(policy)
+            move = np.random.choice(moves, p=policy).item()
 
-                idx += 1
-                p = next_positions[idx] 
-                p.do_move(p.get_opponent_move(move_coord))
-                position_to_input(p, batch[idx])
-            
-            v = self.__dual_net.predict(batch, batch_size=len(next_positions))[1]
+        print(f"win_rate: {(v[0].item() + 1.0) * 50:.2f}%")
 
-            values = []
-            for i, move_coord in enumerate(moves):
-                idx = i * 2
-                prob = pos.TRANS_PROB[move_coord]
-                values.append(prob * v[idx] + (1.0 - prob) * v[idx + 1])
-            
-            i, value = min(enumerate(values), key=lambda x: x[1])
-            print(f"win_rate: {(-value[0] + 1.0) * 50.0:.2f}%")
-            return moves[i]
+        return move
     
     def do_move(self, move: Move):
         self.__pos.do_move(move)

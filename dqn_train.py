@@ -19,6 +19,8 @@ class DQNConfig:
         self.board_size = 6     # 盤面サイズ
         self.trans_prob = [1.0] * self.board_size ** 2
         
+        self.nn_num_layer = 5
+        self.nn_num_kernel = 192
         self.nn_optimizer = tf.optimizers.Adam(lr=0.001)    # QNetworkのオプティマイザ
         self.nn_loss_function = tf.losses.Huber()   # QNetworkの損失関数
 
@@ -60,7 +62,7 @@ class SharedStorage:
         今までのQNetworkのパラメータ更新回数
     """
     def __init__(self, config: DQNConfig):
-        self.qnet = QNetwork(config.board_size, optimizer=config.nn_optimizer, loss=config.nn_loss_function)
+        self.qnet = QNetwork(config.board_size, kernel_num=config.nn_num_kernel, layer_num=config.nn_num_layer, optimizer=config.nn_optimizer, loss=config.nn_loss_function)
         self.target_net = QNetwork(src=self.qnet)
         self.replay_buffer = ReplayBuffer(config.replay_buffer_capacity, config.board_size)
 

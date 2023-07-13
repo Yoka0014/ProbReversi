@@ -7,13 +7,12 @@ from collections import deque
 
 import numpy as np
 import tensorflow as tf
-from keras.layers import Conv2D, Flatten, Dense, BatchNormalization, Activation
-from keras.models import Sequential, load_model, clone_model
-from keras.optimizers import Adam
+from keras.layers import Activation, BatchNormalization, Conv2D, Dense, Flatten
 from keras.losses import Huber
+from keras.models import Sequential, clone_model, load_model
+from keras.optimizers import Adam
 
-from prob_reversi import Position, Move
-
+from prob_reversi import Move, Position
 
 """
 NNに入力するデータのチャンネル数.
