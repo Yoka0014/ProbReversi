@@ -9,14 +9,14 @@ from dualnet_player import DualNetPlayer
 import mcts
 import pv_mcts
 
-#player_0, player_1 = RandomMover(), DQNPlayer("qnet_786.h5")
+#player_0, player_1 = HumanPlayer(), DQNPlayer("qnet_6x6_best.h5")
 #player_0, player_1 = MCPlayer(100), RandomMover()
-#player_0, player_1 = DualNetPlayer(6, "model_6x6_9b.h5"), MCPlayer(100)
+player_0, player_1 = DualNetPlayer(6, "model_6x6_9b.h5"), MCPlayer(100)
 
 config = pv_mcts.UCTConfig()
 config.model_path = "model_6x6_9b.h5"
 config.batch_size = 8
-player_0, player_1 = PV_MCTSPlayer(config, 800), HumanPlayer()
+#player_0, player_1 = PV_MCTSPlayer(config, 800), HumanPlayer()
 
 
 BOARD_SIZE = 6
@@ -27,7 +27,7 @@ for coord in range(BOARD_SIZE ** 2):
 
         
 game = Game(player_0, player_1, BOARD_SIZE, prob)
-game.start(400, swap_player_for_each_game=True, use_gui=False, gui_size=512)
+game.start(1000, swap_player_for_each_game=True, use_gui=False, gui_size=512)
 
 
 

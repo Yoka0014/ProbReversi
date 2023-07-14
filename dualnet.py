@@ -97,12 +97,11 @@ def dual_network():
     x = GlobalAveragePooling2D()(x)
 
     # ポリシー出力
-    p = Dense(DN_OUTPUT_SIZE, kernel_regularizer=l2(0.0005),
-              activation='softmax', name='pi')(x)
+    p = Dense(DN_OUTPUT_SIZE, kernel_regularizer=l2(0.0005))(x)
 
     # バリュー出力
     v = Dense(1, kernel_regularizer=l2(0.0005))(x)
-    v = Activation('tanh', name='v')(v)
+    v = Activation('tanh')(v)
 
     # モデルの作成
     return Model(inputs=input, outputs=[p, v])

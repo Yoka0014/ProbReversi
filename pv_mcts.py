@@ -5,6 +5,7 @@ import time
 from enum import Enum
 
 import numpy as np
+import tensorflow as tf
 from keras.models import Model, load_model
 
 from prob_reversi import Position, DiscColor, Move
@@ -74,10 +75,22 @@ class MoveEval:
     """
 
     def __init__(self):
-        self.coord: int     # 着手座標
-        self.effort: float  # この着手に費やされた探索の割合
-        self.playout_count: int     # この着手に費やされたプレイアウト回数
-        self.action_value: float    # この着手の行動価値
+        self.coord = 0             # 着手座標
+        self.policy_prob = 0.0     # NNが出力した方策の事前確率
+        self.effort = 0.0          # この着手に費やされた探索の割合
+        self.playout_count = 0     # この着手に費やされたプレイアウト回数
+        self.predicted_value = 0.0 # NNが出力した価値の予測値
+        self.action_value = 0.0    # この着手の行動価値
+
+    def copy(self):
+        copied = MoveEval()
+        copied.coord = self.coord
+        copied.policy_prob = self.policy_prob
+        copied.effort = self.effort
+        copied.playout_count = self.playout_count
+        copied.predicted_value = self.predicted_value
+        copied.action_value = self.action_value
+        return copied
 
 
 class SearchResult:
@@ -86,14 +99,23 @@ class SearchResult:
     """
 
     def __init__(self):
-        self.root_value: MoveEval = MoveEval()    # 初期局面の価値
-        self.move_values: list[MoveEval] = []     # 候補手の価値
+        self.root_value: MoveEval = MoveEval()   # 初期局面の価値
+        self.move_evals: list[MoveEval] = []     # 候補手の価値
+        self.ellapsed_ms = 0                     # 探索に要した時間[ms]
+
+    def copy(self):
+        copied = SearchResult()
+        copied.root_value = self.root_value
+        copied.move_evals = [e.copy() for e in self.move_evals]
+        copied.ellapsed_ms = self.ellapsed_ms
+        return copied
 
 
 class UCTConfig:
     def __init__(self):
         self.model_path: str = None
-        self.pucb_factor = 5.0    # PUCBのバイアス項の強さを決める定数
+        self.c_init = 1.25
+        self.c_base = 19652
         self.reuse_subtree = True       # 可能なら前回の探索結果を再利用する
         self.batch_size = 32    # まとめて評価する局面数
 
@@ -103,6 +125,7 @@ class TrajectoryItem:
         self.node = node
         self.child_idx = child_idx
         self.move_idx = move_idx
+
 
 class VisitResult(Enum):
     QUEUING = 0
@@ -129,10 +152,11 @@ class UCT:
     __VIRTUAL_LOSS = 1
 
     def __init__(self, config: UCTConfig):
-        self.__PUCB_FACTOR = config.pucb_factor
-        self.__MODEL: Model = load_model(config.model_path)
+        self.__C_BASE = config.c_base
+        self.__C_INIT = config.c_init
+        self.__MODEL: Model = load_model(config.model_path, custom_objects={"softmax_cross_entropy_with_logits_v2": tf.nn.softmax_cross_entropy_with_logits})
         self.__BATCH_SIZE = config.batch_size
-        
+
         self.__batch: np.ndarray = None
         self.__predict_queue: list[Node] = []
 
@@ -145,7 +169,7 @@ class UCT:
 
     @property
     def search_ellapsed_ms(self) -> int:
-        self.__search_end_ms - self.__search_start_ms
+        return self.__search_end_ms - self.__search_start_ms
 
     @property
     def playout_count(self) -> int:
@@ -193,11 +217,11 @@ class UCT:
         root_pos = self.__root_pos
         pos = Position(root_pos.SIZE, root_pos.TRANS_PROB)
         trajectories: list[list[TrajectoryItem]] = []
-        trajectories_discarded = []
+        trajectories_discarded: list[list[TrajectoryItem]] = []
 
         self.__playout_count = 0
-        self.__search_start_ms = time.perf_counter() * 1000.0
-        
+        self.__search_start_ms = int(time.perf_counter() * 1000.0)
+
         while self.__playout_count < num_playouts:
             trajectories.clear()
             trajectories_discarded.clear()
@@ -216,7 +240,7 @@ class UCT:
                     trajectories_discarded.append(trajectories[-1])
 
                     # 頻繁に評価待ちノードに訪問する場合はキューが満杯になる前に推論する
-                    if len(trajectories_discarded) > self.__BATCH_SIZE // 2:    
+                    if len(trajectories_discarded) > self.__BATCH_SIZE // 2:
                         trajectories.pop()
                         break
 
@@ -232,23 +256,55 @@ class UCT:
             for trajectory in trajectories:
                 self.__backup(trajectory)
 
-        self.__search_end_ms = time.perf_counter() * 1000.0
-        return self.__collect_search_result()
+        self.__search_end_ms = int(time.perf_counter() * 1000.0)
+        tf.keras.backend.clear_session()
+        return self.collect_search_result()
 
-    def __collect_search_result(self) -> SearchResult:
+    def collect_search_result(self) -> SearchResult:
         root = self.__root
         result = SearchResult()
         result.root_value.playout_count = root.visit_count
         result.root_value.effort = 1.0
+        result.root_value.predicted_value = root.value
         result.root_value.action_value = root.value
         for i in range(root.num_child):
             eval = MoveEval()
             eval.coord = root.move_coords[i]
+            eval.policy_prob = root.policy[i].item()
             eval.playout_count = root.child_visit_counts[i]
             eval.effort = eval.playout_count / root.visit_count
             eval.action_value = root.child_value_sums[i] / root.child_visit_counts[i]
-            result.move_values.append(eval)
+            result.move_evals.append(eval)
         return result
+
+    def get_search_result_str(self) -> str:
+        res = self.collect_search_result()
+        s = []
+        s.append(f"ellpased={self.search_ellapsed_ms}[ms]\t{self.playout_count}[playouts]\t{self.pps:.2f}[pps]")
+        s.append(f"value={res.root_value.predicted_value * 100.0:.2f}%\nwin_rate={res.root_value.action_value * 100.0:.2f}%\n")
+        s.append("|move|policy|effort|playouts| value |win_rate|\n")
+
+        for eval in res.move_evals:
+            s.append(f"| {self.__root_pos.convert_coord_to_str(eval.coord)} ")
+
+            s.append("|")
+            s.append(f"{eval.policy_prob * 100:.2f}%".rjust(6))
+
+            s.append("|")
+            s.append(f"{eval.effort * 100:.2f}%".rjust(6))
+
+            s.append("|")
+            s.append(str(eval.playout_count).rjust(8))
+
+            s.append("|")
+            s.append(f"{eval.predicted_value * 100:.2f}%".rjust(7))
+
+            s.append("|")
+            s.append(f"{eval.action_value * 100:.2f}%".rjust(8))
+
+            s.append("\n")
+
+        return "".join(s)
 
     def __init_root_child_nodes(self):
         """
@@ -269,11 +325,12 @@ class UCT:
             if root.child_nodes[i] is None:
                 root.child_nodes[i] = [None, None]
 
-        x = position_to_input(pos)
-        x = x[np.newaxis, :, :, :]
-        p, _ = self.__MODEL.predict(x, verbose=0)
-        root.policy = p[0][root.move_coords]
-        root.policy /= np.sum(root.policy)
+        if root.policy is None or root.value is None:
+            x = position_to_input(pos)
+            x = x[np.newaxis, :, :, :]
+            p_logits, v = self.__MODEL.predict(x, verbose=0)
+            root.policy = tf.nn.softmax(p_logits[0][root.move_coords], axis=0).numpy()
+            root.value = v[0].item()
 
     def __visit_root_node(self, pos: Position, trajectory: list[TrajectoryItem]) -> VisitResult | float:
         node = self.__root
@@ -294,8 +351,14 @@ class UCT:
             return VisitResult.QUEUING
         elif child_node[move_idx].value is None:    # 2回目の訪問だが評価待ち
             return VisitResult.DISCARDED
-        
-        return self.__visit_node(pos, node.child_nodes[child_idx][move_idx], trajectory)
+
+        result = self.__visit_node(pos, node.child_nodes[child_idx][move_idx], trajectory)
+
+        if result == VisitResult.QUEUING or result == VisitResult.DISCARDED:
+                return result
+
+        self.__update_stats(node, child_idx, result)
+        return 1.0 - result
 
     def __visit_node(self, pos: Position, node: Node, trajectory: list[TrajectoryItem], after_pass=False) -> VisitResult | float:
         if node.move_coords[0] == pos.PASS_COORD:
@@ -322,7 +385,7 @@ class UCT:
                     reward = 0.0 if score > 0 else 1.0
                 self.__update_stats(node, 0, reward)
                 return 1.0 - reward
-            
+
             if first_visit:
                 self.__enqueue_node(pos, child_node[0])
                 return VisitResult.QUEUING
@@ -332,7 +395,7 @@ class UCT:
 
             if result == VisitResult.QUEUING or result == VisitResult.DISCARDED:
                 return result
-            
+
             self.__update_stats(node, 0, result)
             return 1.0 - result
 
@@ -341,7 +404,7 @@ class UCT:
 
         child_idx = self.__select_child_node(node)
         move_coord = node.move_coords[child_idx]
-        if node.child_visit_counts[child_idx] == 0:     
+        if node.child_visit_counts[child_idx] == 0:
             node.moves[child_idx] = [None, None]
             node.child_nodes[child_idx] = [None, None]
 
@@ -373,8 +436,8 @@ class UCT:
         result = self.__visit_node(pos, child_node[move_idx], trajectory)
 
         if result == VisitResult.QUEUING or result == VisitResult.DISCARDED:
-                return result
-            
+            return result
+
         self.__update_stats(node, child_idx, result)
         return 1.0 - result
 
@@ -395,7 +458,9 @@ class UCT:
             sqrt_sum = math.sqrt(parent.visit_count)
             u = sqrt_sum / (1.0 + parent.child_visit_counts)
 
-        return np.argmax(q + self.__PUCB_FACTOR * parent.policy * u)
+        c_base = self.__C_BASE
+        c = math.log((1.0 + parent.visit_count + c_base) / c_base) + self.__C_INIT
+        return np.argmax(q + c * parent.policy * u)
 
     def __select_child_node(self, parent: Node) -> np.intp:
         """
@@ -416,19 +481,20 @@ class UCT:
             sqrt_sum = math.sqrt(parent.visit_count)
             u = sqrt_sum / (1.0 + parent.child_visit_counts)
 
-        return np.argmax(q + self.__PUCB_FACTOR * parent.policy * u)
-    
+        c_base = self.__C_BASE
+        c = math.log((1.0 + parent.visit_count + c_base) / c_base) + self.__C_INIT
+        return np.argmax(q + c * parent.policy * u)
+
     def __enqueue_node(self, pos: Position, node: Node):
         position_to_input(pos, self.__batch[self.__current_batch_idx])
         self.__predict_queue.append(node)
         self.__current_batch_idx += 1
-    
+
     def __predict(self):
-        p, v = self.__MODEL.predict(self.__batch, batch_size=self.__current_batch_idx, verbose=0)
+        p_logits, v = self.__MODEL.predict(self.__batch, batch_size=self.__current_batch_idx, verbose=0)
         for i in range(self.__current_batch_idx):
             node = self.__predict_queue[i]
-            node.policy = p[i][node.move_coords]
-            node.policy /= np.sum(node.policy)
+            node.policy = tf.nn.softmax(p_logits[i][node.move_coords], axis=0).numpy()
             node.value = (v[i].item() + 1.0) * 0.5     # [-1.0, 1.0] -> [0.0, 1.0] に変換
 
     def __update_stats(self, parent: Node, child_idx: int, value: float):
@@ -438,9 +504,9 @@ class UCT:
         parent.child_value_sums[child_idx] += value
 
     def __remove_virtual_loss(self, trajectory: list[TrajectoryItem]):
-            for item in trajectory:
-                item.node.visit_count -= UCT.__VIRTUAL_LOSS
-                item.node.child_visit_counts[item.child_idx] -= UCT.__VIRTUAL_LOSS
+        for item in trajectory:
+            item.node.visit_count -= UCT.__VIRTUAL_LOSS
+            item.node.child_visit_counts[item.child_idx] -= UCT.__VIRTUAL_LOSS
 
     def __backup(self, trajectory: list[TrajectoryItem]):
         result = None
