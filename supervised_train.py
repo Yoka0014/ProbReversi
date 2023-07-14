@@ -7,7 +7,7 @@ import tensorflow as tf
 from keras import Model
 from keras.models import load_model
 from keras.optimizers import Adam
-from keras.losses import CategoricalCrossentropy, MSE
+from keras.losses import MSE
 
 from prob_reversi import Position, DiscColor
 from dualnet import position_to_input, dual_network, DN_INPUT_SHAPE, DN_OUTPUT_SIZE
@@ -22,7 +22,7 @@ for coord in range(BOARD_SIZE ** 2):
 
 EPOCH = 1
 BATCH_SIZE = 512
-NUM_CACHED_BATCH = 1000
+NUM_CACHED_BATCHES = 1000
 
 MODEL_PATH = "model_6x6.h5"
 TRAIN_DATA_PATH = "train_data_6x6.pickle"
@@ -32,7 +32,7 @@ loss_history = []
 
 def load_batches(file: BufferedReader) -> list[list[(Position, int, float)]]:
     batches = []
-    for i in range(NUM_CACHED_BATCH):
+    for i in range(NUM_CACHED_BATCHES):
         batch = []
         for j in range(BATCH_SIZE):
             try:
@@ -52,7 +52,7 @@ if os.path.exists(MODEL_PATH):
     model: Model = load_model(MODEL_PATH)
 else:
     model: Model = dual_network()
-    model.compile(optimizer=Adam(learning_rate=0.01), loss=[CategoricalCrossentropy(), MSE])
+    model.compile(optimizer=Adam(learning_rate=0.01), loss=[tf.nn.softmax_cross_entropy_with_logits, MSE])
     model.save(MODEL_PATH)
 
 for epoch in range(EPOCH):

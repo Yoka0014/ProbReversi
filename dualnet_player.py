@@ -27,12 +27,13 @@ class DualNetPlayer(IPlayer):
         
         x = np.empty(shape=(1, pos.SIZE, pos.SIZE, DN_NUM_CHANNEL))
         position_to_input(pos, x[0])
-        p, v = self.__dual_net.predict(x, verbose=0)
+        p_logits, v = self.__dual_net.predict(x, verbose=0)
 
         if self.__max_policy:
-            move = max(moves, key=lambda x: p[0][x])
+            move = max(moves, key=lambda x: p_logits[0][x])
         else:
-            policy = p[0][moves].numpy().astype(np.float64)
+            policy = p_logits[0][moves].numpy()
+            policy = tf.nn.softmax(policy, axis=1).numpy().astype(np.float64)
             policy /= np.sum(policy)
             move = np.random.choice(moves, p=policy).item()
 
