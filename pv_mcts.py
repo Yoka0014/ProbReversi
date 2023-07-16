@@ -148,6 +148,15 @@ class UCT:
         そうすれば, 親ノードよりも価値の高い子ノードが見つかれば, しばらくそのノードが選ばれ続ける.
     """
     __ROOT_FPU = 1.0
+
+    """
+    ルートノード直下のノード以外のFPU
+    """
+    __MID_FPU = 0.0
+
+    """
+    評価待ちノードへの再訪問を防ぐためにノードに与えるペナルティ
+    """
     __VIRTUAL_LOSS = 1
 
     def __init__(self, config: UCTConfig):
@@ -463,12 +472,9 @@ class UCT:
         子ノードを選択する.
         """
 
-        # 未訪問ノードの価値は親ノードの価値で初期化
-        fpu = 0.0
-
         # 行動価値の計算
         q = np.divide(parent.child_value_sums, parent.child_visit_counts,
-                      out=np.full(parent.num_child, fpu, np.float32), where=parent.child_visit_counts != 0)
+                      out=np.full(parent.num_child, UCT.__MID_FPU, np.float32), where=parent.child_visit_counts != 0)
 
         # バイアス項の計算
         if parent.visit_count == 0:
