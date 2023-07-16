@@ -79,7 +79,6 @@ class MoveEval:
         self.policy_prob = 0.0     # NNが出力した方策の事前確率
         self.effort = 0.0          # この着手に費やされた探索の割合
         self.playout_count = 0     # この着手に費やされたプレイアウト回数
-        self.predicted_value = 0.0 # NNが出力した価値の予測値
         self.action_value = 0.0    # この着手の行動価値
 
     def copy(self):
@@ -88,7 +87,6 @@ class MoveEval:
         copied.policy_prob = self.policy_prob
         copied.effort = self.effort
         copied.playout_count = self.playout_count
-        copied.predicted_value = self.predicted_value
         copied.action_value = self.action_value
         return copied
 
@@ -118,6 +116,7 @@ class UCTConfig:
         self.c_base = 19652
         self.reuse_subtree = True       # 可能なら前回の探索結果を再利用する
         self.batch_size = 32    # まとめて評価する局面数
+        self.softmax_temperature = 1.0
 
 
 class TrajectoryItem:
@@ -156,6 +155,7 @@ class UCT:
         self.__C_INIT = config.c_init
         self.__MODEL: Model = load_model(config.model_path, custom_objects={"softmax_cross_entropy_with_logits_v2": tf.nn.softmax_cross_entropy_with_logits})
         self.__BATCH_SIZE = config.batch_size
+        self.__SOFTMAX_TEMPERATURE = config.softmax_temperature
 
         self.__batch: np.ndarray = None
         self.__predict_queue: list[Node] = []
@@ -180,7 +180,7 @@ class UCT:
         """
         playout per second
         """
-        return self.__playout_count / self.search_ellapsed_ms
+        return self.__playout_count / (self.search_ellapsed_ms * 1.0e-3)
 
     def set_root_pos(self, pos: Position):
         prev_root_pos = self.__root_pos
@@ -265,8 +265,7 @@ class UCT:
         result = SearchResult()
         result.root_value.playout_count = root.visit_count
         result.root_value.effort = 1.0
-        result.root_value.predicted_value = root.value
-        result.root_value.action_value = root.value
+        result.root_value.action_value = root.value_sum / root.visit_count
         for i in range(root.num_child):
             eval = MoveEval()
             eval.coord = root.move_coords[i]
@@ -280,11 +279,11 @@ class UCT:
     def get_search_result_str(self) -> str:
         res = self.collect_search_result()
         s = []
-        s.append(f"ellpased={self.search_ellapsed_ms}[ms]\t{self.playout_count}[playouts]\t{self.pps:.2f}[pps]")
-        s.append(f"value={res.root_value.predicted_value * 100.0:.2f}%\nwin_rate={res.root_value.action_value * 100.0:.2f}%\n")
-        s.append("|move|policy|effort|playouts| value |win_rate|\n")
+        s.append(f"ellpased={self.search_ellapsed_ms}[ms]\t{self.playout_count}[playouts]\t{self.pps:.2f}[pps]\n")
+        s.append(f"win_rate={res.root_value.action_value * 100.0:.2f}%\n")
+        s.append("|move|policy|effort|playouts|win_rate|\n")
 
-        for eval in res.move_evals:
+        for eval in sorted(res.move_evals, key=lambda e: 1.0 - e.effort):
             s.append(f"| {self.__root_pos.convert_coord_to_str(eval.coord)} ")
 
             s.append("|")
@@ -297,12 +296,9 @@ class UCT:
             s.append(str(eval.playout_count).rjust(8))
 
             s.append("|")
-            s.append(f"{eval.predicted_value * 100:.2f}%".rjust(7))
-
-            s.append("|")
             s.append(f"{eval.action_value * 100:.2f}%".rjust(8))
 
-            s.append("\n")
+            s.append("|\n")
 
         return "".join(s)
 
@@ -329,7 +325,7 @@ class UCT:
             x = position_to_input(pos)
             x = x[np.newaxis, :, :, :]
             p_logits, v = self.__MODEL.predict(x, verbose=0)
-            root.policy = tf.nn.softmax(p_logits[0][root.move_coords], axis=0).numpy()
+            root.policy = tf.nn.softmax(p_logits[0][root.move_coords] / self.__SOFTMAX_TEMPERATURE, axis=0).numpy()
             root.value = v[0].item()
 
     def __visit_root_node(self, pos: Position, trajectory: list[TrajectoryItem]) -> VisitResult | float:
@@ -355,7 +351,7 @@ class UCT:
         result = self.__visit_node(pos, node.child_nodes[child_idx][move_idx], trajectory)
 
         if result == VisitResult.QUEUING or result == VisitResult.DISCARDED:
-                return result
+            return result
 
         self.__update_stats(node, child_idx, result)
         return 1.0 - result
@@ -468,7 +464,7 @@ class UCT:
         """
 
         # 未訪問ノードの価値は親ノードの価値で初期化
-        fpu = parent.value
+        fpu = 0.0
 
         # 行動価値の計算
         q = np.divide(parent.child_value_sums, parent.child_visit_counts,
@@ -494,7 +490,7 @@ class UCT:
         p_logits, v = self.__MODEL.predict(self.__batch, batch_size=self.__current_batch_idx, verbose=0)
         for i in range(self.__current_batch_idx):
             node = self.__predict_queue[i]
-            node.policy = tf.nn.softmax(p_logits[i][node.move_coords], axis=0).numpy()
+            node.policy = tf.nn.softmax(p_logits[i][node.move_coords] / self.__SOFTMAX_TEMPERATURE, axis=0).numpy()
             node.value = (v[i].item() + 1.0) * 0.5     # [-1.0, 1.0] -> [0.0, 1.0] に変換
 
     def __update_stats(self, parent: Node, child_idx: int, value: float):

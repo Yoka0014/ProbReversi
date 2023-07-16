@@ -5,7 +5,7 @@
 # パッケージのインポート
 import numpy as np
 
-from keras.layers import Activation, Add, BatchNormalization, Conv2D, Dense, GlobalAveragePooling2D, Input
+from keras.layers import Activation, Add, BatchNormalization, Conv2D, Dense, Flatten, Input
 from keras.models import Model
 from keras.regularizers import l2
 from keras import backend as K
@@ -89,18 +89,25 @@ def dual_network():
     x = BatchNormalization()(x)
     x = Activation('relu')(x)
 
-    # 残差ブロック x 16
-    for i in range(DN_RESIDUAL_NUM):
+    # 残差ブロック
+    for _ in range(DN_RESIDUAL_NUM):
         x = residual_block()(x)
 
-    # プーリング層
-    x = GlobalAveragePooling2D()(x)
-
     # ポリシー出力
-    p = Dense(DN_OUTPUT_SIZE, kernel_regularizer=l2(0.0005))(x)
+    p = Conv2D(2, 1, padding='same', use_bias=False, kernel_initializer='he_normal', kernel_regularizer=l2(0.0005))(x)
+    p = BatchNormalization()(p)
+    p = Activation('relu')(p)
+    p = Flatten()(p)
+    p = Dense(DN_OUTPUT_SIZE, kernel_regularizer=l2(0.0005))(p)
 
     # バリュー出力
-    v = Dense(1, kernel_regularizer=l2(0.0005))(x)
+    v = Conv2D(1, 1, padding='same', use_bias=False, kernel_initializer='he_normal', kernel_regularizer=l2(0.0005))(x)
+    v = BatchNormalization()(v)
+    v = Activation('relu')(v)
+    v = Flatten()(v)
+    v = Dense(256, kernel_regularizer=l2(0.0005))(v)
+    v = Activation('relu')(v)
+    v = Dense(1, kernel_regularizer=l2(0.0005))(v)
     v = Activation('tanh')(v)
 
     # モデルの作成
